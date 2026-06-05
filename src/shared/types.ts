@@ -240,6 +240,9 @@ export interface FlatProfile {
   description: string;
 }
 
+/** Profile keys used when matching fields, including non-profile file uploads. */
+export type ProfileMatchKey = keyof FlatProfile | 'resumeFile';
+
 /** A detected form field on a job application page (content script only). */
 export interface FormField {
   /** DOM element reference; not serializable across extension contexts. */
@@ -248,8 +251,8 @@ export interface FormField {
   label: string;
   /** Detected input control type. */
   type: FormFieldType;
-  /** Matched FlatProfile key, if the matcher found a mapping. */
-  profileKey?: keyof FlatProfile;
+  /** Matched profile key, if the matcher found a mapping. */
+  profileKey?: ProfileMatchKey;
   /** Match confidence score from 0 (none) to 1 (certain). */
   confidence: number;
   /** Whether the field has been filled by the extension. */
