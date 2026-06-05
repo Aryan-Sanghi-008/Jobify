@@ -285,3 +285,79 @@ export interface StorageSchema {
   /** Extension behavior and UI settings. */
   settings: AppSettings;
 }
+
+/** Known runtime message types exchanged between extension contexts. */
+export type MessageType =
+  | 'GET_PROFILE'
+  | 'SAVE_PROFILE'
+  | 'LOG_APPLICATION'
+  | 'LEARN_FIELD'
+  | 'GET_SETTINGS'
+  | 'PING'
+  | 'PORTAL_DETECTED';
+
+/** Request to load the stored user profile. */
+export interface GetProfileMessage {
+  type: 'GET_PROFILE';
+}
+
+/** Request to persist an updated user profile. */
+export interface SaveProfileMessage {
+  type: 'SAVE_PROFILE';
+  payload: UserProfile;
+}
+
+/** Request to log a submitted job application. */
+export interface LogApplicationMessage {
+  type: 'LOG_APPLICATION';
+  payload: JobApplication;
+}
+
+/** Request to store a learned field label mapping. */
+export interface LearnFieldMessage {
+  type: 'LEARN_FIELD';
+  labelHash: string;
+  profileKey: string;
+}
+
+/** Request to load extension settings. */
+export interface GetSettingsMessage {
+  type: 'GET_SETTINGS';
+}
+
+/** Health-check ping from a content script. */
+export interface PingMessage {
+  type: 'PING';
+}
+
+/** Notification that a job portal was detected on the active tab. */
+export interface PortalDetectedMessage {
+  type: 'PORTAL_DETECTED';
+  portal: PortalName;
+}
+
+/** Discriminated union of all extension runtime messages. */
+export type ExtensionMessage =
+  | GetProfileMessage
+  | SaveProfileMessage
+  | LogApplicationMessage
+  | LearnFieldMessage
+  | GetSettingsMessage
+  | PingMessage
+  | PortalDetectedMessage;
+
+/** Error response returned when a message handler fails. */
+export interface MessageErrorResponse {
+  success: false;
+  error: string;
+}
+
+/** Success response returned when a write operation completes. */
+export interface MessageSuccessResponse {
+  success: true;
+}
+
+/** Response returned by the PING handler. */
+export interface PingResponse {
+  alive: true;
+}
