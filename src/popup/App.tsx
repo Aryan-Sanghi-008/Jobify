@@ -3,6 +3,7 @@ import {
   Suspense,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
   type SVGProps,
@@ -177,6 +178,7 @@ function ToggleRow({ label, checked, onChange }: ToggleRowProps) {
 }
 
 export default function App() {
+  const autofillButtonRef = useRef<HTMLButtonElement>(null);
   const [activeTab, setActiveTab] = useState<TabId>("profile");
   const [profileComplete, setProfileComplete] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
@@ -208,6 +210,27 @@ export default function App() {
         setIsInitialLoading(false);
       });
   }, []);
+
+  useEffect(() => {
+    void chrome.storage.session.get("pendingPopupTab").then((result) => {
+      const pendingTab = result.pendingPopupTab;
+      if (
+        pendingTab === "profile" ||
+        pendingTab === "cover-letters" ||
+        pendingTab === "tracker" ||
+        pendingTab === "settings"
+      ) {
+        setActiveTab(pendingTab);
+        void chrome.storage.session.remove("pendingPopupTab");
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!isInitialLoading && isJobPage) {
+      autofillButtonRef.current?.focus();
+    }
+  }, [isInitialLoading, isJobPage]);
 
   useEffect(() => {
     if (!unknownLabels.length) {
@@ -318,6 +341,7 @@ export default function App() {
       {isJobPage ? (
         <section className="border-b border-gray-200 px-4 py-3">
           <button
+            ref={autofillButtonRef}
             type="button"
             onClick={() => void triggerAutofill()}
             disabled={isFilling}
@@ -332,6 +356,12 @@ export default function App() {
               <span>Auto-fill this page</span>
             )}
           </button>
+          <p className="mt-1 text-center text-[10px] text-gray-400">
+            Or press Alt+Shift+F
+          </p>
+          <p className="mt-1 text-center text-[10px] text-gray-400">
+            Shortcuts can be customized at chrome://extensions/shortcuts
+          </p>
 
           {resultMessage ? (
             <p

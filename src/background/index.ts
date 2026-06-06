@@ -14,8 +14,15 @@ import {
   logApplication,
   saveProfile,
 } from '@/shared/storage';
-import type { ExtensionMessage, JobApplication, PortalName } from '@/shared/types';
+import type {
+  ExtensionMessage,
+  JobApplication,
+  PortalName,
+  TriggerAutofillResponse,
+} from '@/shared/types';
 import { detectPortal, generateId } from '@/shared/utils';
+
+const MESSAGE_TIMEOUT_MS = 5000;
 
 const PORTAL_BADGE_ABBREVIATIONS: Record<Exclude<PortalName, 'generic'>, string> =
   {
@@ -152,6 +159,157 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unknown error';
 }
 
+function sendTabMessage<T>(tabId: number, message: unknown): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error('Message timeout'));
+    }, MESSAGE_TIMEOUT_MS);
+
+    chrome.tabs.sendMessage(tabId, message, (response) => {
+      clearTimeout(timer);
+
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+
+      resolve(response as T);
+    });
+  });
+}
+
+async function getActiveTab(): Promise<chrome.tabs.Tab | null> {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  return tab ?? null;
+}
+
+function isAutofillableUrl(url: string | undefined): boolean {
+  if (!url) {
+    return false;
+  }
+
+  return (
+    !url.startsWith('chrome://') &&
+    !url.startsWith('chrome-extension://') &&
+    !url.startsWith('edge://') &&
+    !url.startsWith('about:')
+  );
+}
+
+async function ensureContentScript(tabId: number): Promise<void> {
+  try {
+    await sendTabMessage(tabId, { type: 'PING' });
+    return;
+  } catch {
+    const manifest = chrome.runtime.getManifest();
+    const files = manifest.content_scripts?.[0]?.js;
+
+    if (!files?.length) {
+      throw new Error('Content script not configured');
+    }
+
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files,
+    });
+  }
+}
+
+async function showShortcutNotification(
+  title: string,
+  message: string,
+): Promise<void> {
+  try {
+    await chrome.notifications.create(`shortcut-${Date.now()}`, {
+      type: 'basic',
+      iconUrl: chrome.runtime.getURL('icons/icon128.svg'),
+      title,
+      message,
+    });
+  } catch (error) {
+    console.warn(
+      '[JobAutofill Background] Failed to show shortcut notification:',
+      error,
+    );
+  }
+}
+
+function formatAutofillNotification(
+  response: TriggerAutofillResponse,
+): { title: string; message: string } {
+  if ('type' in response && response.type === 'PROFILE_INCOMPLETE') {
+    return {
+      title: 'Autofill blocked',
+      message: 'Complete your profile email in Jobify first.',
+    };
+  }
+
+  if ('type' in response && response.type === 'AUTOFILL_STARTED') {
+    return {
+      title: 'Autofill started',
+      message: 'Filling the current page…',
+    };
+  }
+
+  if ('errors' in response && response.errors.length > 0) {
+    return {
+      title: 'Autofill failed',
+      message: response.errors[0],
+    };
+  }
+
+  if ('filled' in response) {
+    const unknownCount = response.unknown.length;
+    return {
+      title: 'Autofill complete',
+      message: `Filled ${response.filled} fields · ${unknownCount} unknown`,
+    };
+  }
+
+  return {
+    title: 'Autofill',
+    message: 'Triggered on the current page.',
+  };
+}
+
+async function handleTriggerAutofillCommand(): Promise<void> {
+  const tab = await getActiveTab();
+
+  if (!tab?.id) {
+    await showShortcutNotification('Autofill failed', 'No active tab found.');
+    return;
+  }
+
+  if (!isAutofillableUrl(tab.url)) {
+    await showShortcutNotification(
+      'Autofill failed',
+      'This page cannot be auto-filled.',
+    );
+    return;
+  }
+
+  try {
+    await ensureContentScript(tab.id);
+    const response = await sendTabMessage<TriggerAutofillResponse>(tab.id, {
+      type: 'TRIGGER_AUTOFILL',
+    });
+    const notification = formatAutofillNotification(response);
+    await showShortcutNotification(notification.title, notification.message);
+  } catch (error) {
+    await showShortcutNotification('Autofill failed', getErrorMessage(error));
+  }
+}
+
+async function handleOpenTrackerCommand(): Promise<void> {
+  await chrome.storage.session.set({ pendingPopupTab: 'tracker' });
+
+  try {
+    await chrome.action.openPopup();
+  } catch (error) {
+    console.warn('[JobAutofill Background] Unable to open popup for tracker:', error);
+  }
+}
+
 async function setPortalBadge(
   tabId: number,
   portal: PortalName,
@@ -244,6 +402,25 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   })();
 
   return true;
+});
+
+chrome.commands.onCommand.addListener((command) => {
+  void (async () => {
+    try {
+      assertRuntimeValid();
+
+      if (command === 'trigger-autofill') {
+        await handleTriggerAutofillCommand();
+        return;
+      }
+
+      if (command === 'open-tracker') {
+        await handleOpenTrackerCommand();
+      }
+    } catch (error) {
+      console.error('[JobAutofill Background] onCommand failed:', error);
+    }
+  })();
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
