@@ -3,6 +3,7 @@ import {
   DEFAULT_SETTINGS,
   getProfile,
   getSettings,
+  hasRecentApplication,
   learnField,
   logApplication,
   saveProfile,
@@ -148,6 +149,37 @@ async function openPopupOnInstall(): Promise<void> {
   }
 }
 
+async function showApplicationLoggedNotification(
+  company: string,
+  role: string,
+): Promise<void> {
+  try {
+    await chrome.notifications.create(`app-logged-${Date.now()}`, {
+      type: 'basic',
+      iconUrl: chrome.runtime.getURL('icons/icon128.svg'),
+      title: 'Application logged!',
+      message: `${company} - ${role}`,
+    });
+  } catch (error) {
+    console.warn(
+      '[JobAutofill Background] Failed to show application notification:',
+      error,
+    );
+  }
+}
+
+async function submitApplicationLog(
+  app: JobApplication,
+): Promise<{ logged: boolean }> {
+  if (await hasRecentApplication(app.company, app.role)) {
+    return { logged: false };
+  }
+
+  await logApplication(app);
+  await showApplicationLoggedNotification(app.company, app.role);
+  return { logged: true };
+}
+
 async function handleMessage(
   message: ExtensionMessage,
   sender: chrome.runtime.MessageSender,
@@ -160,9 +192,10 @@ async function handleMessage(
     case 'SAVE_PROFILE':
       await saveProfile(message.payload);
       return { success: true };
-    case 'LOG_APPLICATION':
-      await logApplication(message.payload);
-      return { success: true };
+    case 'LOG_APPLICATION': {
+      const result = await submitApplicationLog(message.payload);
+      return { success: true, ...result };
+    }
     case 'LEARN_FIELD':
       await learnField(
         message.labelHash,
@@ -192,8 +225,8 @@ async function handleMessage(
         status: 'applied',
         notes: '',
       };
-      await logApplication(application);
-      return { success: true };
+      const result = await submitApplicationLog(application);
+      return { success: true, ...result };
     }
     case 'FORM_STATE_CHANGED':
       return { success: true };

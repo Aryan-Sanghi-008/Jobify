@@ -186,6 +186,32 @@ export async function getApplications(): Promise<JobApplication[]> {
   }
 }
 
+const DEDUP_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+export function normalizeApplicationKey(company: string, role: string): string {
+  return `${company.trim().toLowerCase()}::${role.trim().toLowerCase()}`;
+}
+
+export async function hasRecentApplication(
+  company: string,
+  role: string,
+  withinMs = DEDUP_WINDOW_MS,
+): Promise<boolean> {
+  const targetKey = normalizeApplicationKey(company, role);
+  const cutoff = Date.now() - withinMs;
+  const applications = await getApplications();
+
+  return applications.some((application) => {
+    if (application.appliedAt < cutoff) {
+      return false;
+    }
+
+    return (
+      normalizeApplicationKey(application.company, application.role) === targetKey
+    );
+  });
+}
+
 export async function logApplication(app: JobApplication): Promise<void> {
   try {
     const existing = await getApplications();

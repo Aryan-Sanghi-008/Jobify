@@ -1,3 +1,4 @@
+import { AutoLogger } from '@/content/autoLogger';
 import { fillFieldWithValue, fillFields } from '@/content/filler';
 import { FormStateMachine } from '@/content/formStateMachine';
 import { matchFields } from '@/content/matcher';
@@ -67,6 +68,7 @@ const CONTENT_MESSAGE_TYPES: ContentMessageType[] = [
   let lastFlatProfile: FlatProfile | null = null;
   let lastSettings: AppSettings | null = null;
   let lastLearnedFields: Record<string, LearnedField> = {};
+  let lastCoverLetterTemplateId: string | undefined;
 
   function assertRuntimeValid(): void {
     if (!chrome.runtime?.id) {
@@ -128,22 +130,15 @@ const CONTENT_MESSAGE_TYPES: ContentMessageType[] = [
     }
   }
 
-  function notifyApplicationComplete(): void {
-    try {
-      assertRuntimeValid();
-      void chrome.runtime.sendMessage({
-        type: 'APPLICATION_COMPLETE',
-        payload: {
-          company: extractCompanyFromPage(),
-          role: extractJobTitleFromPage(),
-          portal: detectPortal(window.location.href),
-          url: window.location.href,
-        },
-      });
-    } catch (error) {
-      console.warn('[JobAutofill Content] Failed to report completion:', error);
-    }
-  }
+  const autoLogger = new AutoLogger({
+    getCoverLetterUsed: () => lastCoverLetterTemplateId,
+    extractJobInfo: () => ({
+      company: extractCompanyFromPage(),
+      role: extractJobTitleFromPage(),
+      portal: detectPortal(window.location.href),
+      url: window.location.href,
+    }),
+  });
 
   const formStateMachine = new FormStateMachine({
     scanFields: () => scanPageFields(),
@@ -159,7 +154,7 @@ const CONTENT_MESSAGE_TYPES: ContentMessageType[] = [
     clickNext: (button: HTMLButtonElement) => {
       button.click();
     },
-    notifyComplete: notifyApplicationComplete,
+    notifyComplete: () => {},
     broadcastState: broadcastFormState,
   });
 
@@ -247,6 +242,7 @@ const CONTENT_MESSAGE_TYPES: ContentMessageType[] = [
     });
 
     simulateUserInput(field, content);
+    lastCoverLetterTemplateId = template.id;
 
     return { success: true, field_found: true };
   }
@@ -357,6 +353,7 @@ const CONTENT_MESSAGE_TYPES: ContentMessageType[] = [
     const portal = detectPortal(window.location.href);
     await pingBackground();
     await notifyPortalDetected(portal);
+    autoLogger.startWatching();
   }
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
