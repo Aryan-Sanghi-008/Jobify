@@ -4,9 +4,10 @@ import { matchFields } from '@/content/matcher';
 import { scanForNextButton, scanPageFields } from '@/content/scanner';
 import { ATS_SELECTORS, PORTAL_URLS } from '@/shared/constants';
 import { selectorRegistry } from '@/shared/selectorRegistry';
-import { flattenProfile, getLearnedFields } from '@/shared/storage';
+import { flattenProfile, getAutofillData } from '@/shared/storage';
 import type {
   AppSettings,
+  CommunityFieldsMap,
   FillResult,
   FlatProfile,
   FormField,
@@ -603,9 +604,16 @@ function fillApplicationQuestions(
   profile: UserProfile,
   settings: AppSettings,
   learnedFields: Record<string, LearnedField>,
+  communityFields: CommunityFieldsMap,
   flatProfile: FlatProfile,
 ): FillResult {
-  const matchedFields = matchFields(fields, profile, learnedFields);
+  const matchedFields = matchFields(
+    fields,
+    profile,
+    learnedFields,
+    communityFields,
+    'workday',
+  );
   return fillWorkdayMatchedFields(matchedFields, flatProfile, settings);
 }
 
@@ -616,6 +624,7 @@ function fillWorkdayStep(
   settings: AppSettings,
   formRoot: ParentNode,
   learnedFields: Record<string, LearnedField>,
+  communityFields: CommunityFieldsMap,
   flatProfile: FlatProfile,
 ): FillResult {
   if (section === 'self_identify') {
@@ -628,7 +637,14 @@ function fillWorkdayStep(
     case 'my_experience':
       return mergeFillResults(
         fillMyExperience(profile, formRoot),
-        fillApplicationQuestions(fields, profile, settings, learnedFields, flatProfile),
+        fillApplicationQuestions(
+          fields,
+          profile,
+          settings,
+          learnedFields,
+          communityFields,
+          flatProfile,
+        ),
       );
     case 'application_questions':
       return fillApplicationQuestions(
@@ -636,6 +652,7 @@ function fillWorkdayStep(
         profile,
         settings,
         learnedFields,
+        communityFields,
         flatProfile,
       );
     default:
@@ -644,6 +661,7 @@ function fillWorkdayStep(
         profile,
         settings,
         learnedFields,
+        communityFields,
         flatProfile,
       );
   }
@@ -721,7 +739,7 @@ export class WorkdayATS {
       return emptyFillResult(['Workday application form not found']);
     }
 
-    const [learnedFields] = await Promise.all([getLearnedFields()]);
+    const { learnedFields, communityFields } = await getAutofillData();
     const flatProfile = flattenProfile(profile);
     let aggregate = emptyFillResult();
 
@@ -737,6 +755,7 @@ export class WorkdayATS {
             settings,
             formRoot,
             learnedFields,
+            communityFields,
             flatProfile,
           );
           aggregate = mergeFillResults(aggregate, stepResult);

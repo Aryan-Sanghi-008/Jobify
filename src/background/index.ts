@@ -1,6 +1,7 @@
 import { fetchMatchingJobs } from '@/background/jobFetcher';
 import { generateCoverLetter, testAiConnection } from '@/shared/aiEngine';
-import { VERSION } from '@/shared/constants';
+import { fetchCommunityFields } from '@/shared/communityFields';
+import { COMMUNITY_FIELDS_URL, VERSION } from '@/shared/constants';
 import { Logger } from '@/shared/logger';
 import {
   assertRuntimeValid,
@@ -10,19 +11,25 @@ import {
   validateProfile,
 } from '@/shared/security';
 import {
+  DEFAULT_COMMUNITY_FIELDS,
+  DEFAULT_COMMUNITY_FIELDS_META,
   DEFAULT_DISCOVERED_JOBS_META,
   DEFAULT_JOB_PREFERENCES,
   DEFAULT_SETTINGS,
+  getCommunityFields,
+  getCommunityFieldsMeta,
   getDiscoveredJobs,
   getDiscoveredJobsMeta,
   getJobPreferences,
   getProfile,
   getSettings,
   hasRecentApplication,
+  saveCommunityFields,
   saveSettings,
   learnField,
   logApplication,
   saveProfile,
+  updateCommunityFieldsMeta,
   updateDiscoveredJobsMeta,
   upsertDiscoveredJobs,
 } from '@/shared/storage';
@@ -38,6 +45,7 @@ import { detectPortal, generateId } from '@/shared/utils';
 const MESSAGE_TIMEOUT_MS = 5000;
 const AUTO_APPLY_TIMEOUT_MS = 30_000;
 const JOB_FETCH_ALARM = 'fetchDiscoveredJobs';
+const COMMUNITY_FIELDS_ALARM = 'fetchCommunityFields';
 
 let autoApplyTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -85,6 +93,8 @@ async function initializeStorage(): Promise<void> {
     jobPreferences: DEFAULT_JOB_PREFERENCES,
     discoveredJobs: [],
     discoveredJobsMeta: DEFAULT_DISCOVERED_JOBS_META,
+    communityFields: DEFAULT_COMMUNITY_FIELDS,
+    communityFieldsMeta: DEFAULT_COMMUNITY_FIELDS_META,
   });
 }
 
@@ -104,6 +114,8 @@ async function runMigration(): Promise<void> {
     'jobPreferences',
     'discoveredJobs',
     'discoveredJobsMeta',
+    'communityFields',
+    'communityFieldsMeta',
   ]);
 
   if (!storedAll.jobPreferences) {
@@ -117,6 +129,16 @@ async function runMigration(): Promise<void> {
   if (!storedAll.discoveredJobsMeta) {
     await chrome.storage.local.set({
       discoveredJobsMeta: DEFAULT_DISCOVERED_JOBS_META,
+    });
+  }
+
+  if (!storedAll.communityFields) {
+    await chrome.storage.local.set({ communityFields: DEFAULT_COMMUNITY_FIELDS });
+  }
+
+  if (!storedAll.communityFieldsMeta) {
+    await chrome.storage.local.set({
+      communityFieldsMeta: DEFAULT_COMMUNITY_FIELDS_META,
     });
   }
 
@@ -184,6 +206,32 @@ async function runJobFetch(): Promise<{
 
 async function setupJobFetchAlarm(): Promise<void> {
   await chrome.alarms.create(JOB_FETCH_ALARM, { periodInMinutes: 240 });
+}
+
+async function setupCommunityFieldsAlarm(): Promise<void> {
+  await chrome.alarms.create(COMMUNITY_FIELDS_ALARM, { periodInMinutes: 10080 });
+}
+
+async function runCommunityFieldsFetch(): Promise<{
+  success: boolean;
+  count: number;
+  error?: string;
+}> {
+  try {
+    const fields = await fetchCommunityFields(COMMUNITY_FIELDS_URL);
+    const count = Object.keys(fields).length;
+    await saveCommunityFields(fields);
+    await updateCommunityFieldsMeta({
+      lastFetchedAt: Date.now(),
+      lastError: null,
+      entryCount: count,
+    });
+    return { success: true, count };
+  } catch (error) {
+    const message = getErrorMessage(error);
+    await updateCommunityFieldsMeta({ lastError: message });
+    return { success: false, count: 0, error: message };
+  }
 }
 
 async function submitApplicationLog(
@@ -308,6 +356,15 @@ async function handleMessage(
     }
     case 'FETCH_DISCOVERED_JOBS':
       return runJobFetch();
+    case 'GET_COMMUNITY_FIELDS': {
+      const [fields, meta] = await Promise.all([
+        getCommunityFields(),
+        getCommunityFieldsMeta(),
+      ]);
+      return { fields, meta };
+    }
+    case 'FETCH_COMMUNITY_FIELDS':
+      return runCommunityFieldsFetch();
     case 'AUTO_APPLY_JOB':
       return autoApplyToJob(message.url);
     default: {
@@ -743,6 +800,7 @@ chrome.runtime.onInstalled.addListener((details) => {
       setupContextMenus();
 
       await setupJobFetchAlarm();
+      await setupCommunityFieldsAlarm();
 
       if (details.reason === 'install') {
         await initializeStorage();
@@ -818,6 +876,11 @@ chrome.commands.onCommand.addListener((command) => {
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === JOB_FETCH_ALARM) {
     void runJobFetch();
+    return;
+  }
+
+  if (alarm.name === COMMUNITY_FIELDS_ALARM) {
+    void runCommunityFieldsFetch();
   }
 });
 

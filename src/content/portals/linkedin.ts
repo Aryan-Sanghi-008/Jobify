@@ -2,7 +2,7 @@ import { fillFields } from '@/content/filler';
 import { matchFields } from '@/content/matcher';
 import { scanForNextButton, scanPageFields } from '@/content/scanner';
 import { ATS_SELECTORS, PORTAL_URLS } from '@/shared/constants';
-import { flattenProfile, getLearnedFields } from '@/shared/storage';
+import { flattenProfile, getAutofillData } from '@/shared/storage';
 import type { AppSettings, FillResult, UserProfile } from '@/shared/types';
 import { isElementVisible, waitForElement } from '@/shared/utils';
 
@@ -199,13 +199,19 @@ export class LinkedInPortal {
       return emptyFillResult(['Easy Apply modal did not open']);
     }
 
-    const [learnedFields] = await Promise.all([getLearnedFields()]);
+    const { learnedFields, communityFields } = await getAutofillData();
     const flatProfile = flattenProfile(profile);
     let combinedResult = emptyFillResult();
 
     for (let step = 0; step < MAX_EASY_APPLY_STEPS; step += 1) {
       const fields = scanPageFields(modal);
-      const matchedFields = matchFields(fields, profile, learnedFields);
+      const matchedFields = matchFields(
+        fields,
+        profile,
+        learnedFields,
+        communityFields,
+        'linkedin',
+      );
       const stepResult = fillFields(matchedFields, flatProfile, settings);
       combinedResult = mergeFillResults(combinedResult, stepResult);
 

@@ -251,6 +251,7 @@ describe('getAutofillData', () => {
       'profile',
       'settings',
       'learnedFields',
+      'communityFields',
     ]);
     expect(data.profile).toEqual(DEFAULT_PROFILE);
     expect(data.settings).toEqual({ ...DEFAULT_SETTINGS, debugMode: true });

@@ -392,6 +392,28 @@ export interface DiscoveredJobsMeta {
   lastError: string | null;
 }
 
+/** A community-contributed field mapping entry. */
+export interface CommunityFieldEntry {
+  /** Profile field key this label maps to. */
+  profileKey: string;
+  /** Normalized label variants for matching. */
+  labels: string[];
+  /** Portals where this mapping applies; empty means all portals. */
+  portals: PortalName[];
+  /** Community vote count for ranking confidence. */
+  votes: number;
+}
+
+/** Community field mappings keyed by label hash. */
+export type CommunityFieldsMap = Record<string, CommunityFieldEntry>;
+
+/** Metadata for the cached community fields file. */
+export interface CommunityFieldsMeta {
+  lastFetchedAt: number | null;
+  lastError: string | null;
+  entryCount: number;
+}
+
 /** A user-taught field mapping with usage metadata. */
 export interface LearnedField {
   /** ProfileMatchKey or literal user answer. */
@@ -428,6 +450,10 @@ export interface StorageSchema {
   discoveredJobs: DiscoveredJob[];
   /** Fetch metadata for discovered jobs. */
   discoveredJobsMeta: DiscoveredJobsMeta;
+  /** Community-contributed field mappings. */
+  communityFields: CommunityFieldsMap;
+  /** Fetch metadata for community field mappings. */
+  communityFieldsMeta: CommunityFieldsMeta;
 }
 
 /** Known runtime message types exchanged between extension contexts. */
@@ -445,7 +471,9 @@ export type MessageType =
   | 'TEST_AI_CONNECTION'
   | 'GET_DISCOVERED_JOBS'
   | 'FETCH_DISCOVERED_JOBS'
-  | 'AUTO_APPLY_JOB';
+  | 'AUTO_APPLY_JOB'
+  | 'FETCH_COMMUNITY_FIELDS'
+  | 'GET_COMMUNITY_FIELDS';
 
 /** Message types handled by the content script. */
 export type ContentMessageType =
@@ -636,6 +664,29 @@ export interface AutoApplyJobResponse {
   error?: string;
 }
 
+/** Request to load cached community field mappings. */
+export interface GetCommunityFieldsMessage {
+  type: 'GET_COMMUNITY_FIELDS';
+}
+
+/** Response with cached community field mappings. */
+export interface GetCommunityFieldsResponse {
+  fields: CommunityFieldsMap;
+  meta: CommunityFieldsMeta;
+}
+
+/** Request to manually refresh community field mappings. */
+export interface FetchCommunityFieldsMessage {
+  type: 'FETCH_COMMUNITY_FIELDS';
+}
+
+/** Response from community fields fetch. */
+export interface FetchCommunityFieldsResponse {
+  success: boolean;
+  count: number;
+  error?: string;
+}
+
 /** Discriminated union of all extension runtime messages. */
 export type ExtensionMessage =
   | GetProfileMessage
@@ -651,7 +702,9 @@ export type ExtensionMessage =
   | TestAiConnectionMessage
   | GetDiscoveredJobsMessage
   | FetchDiscoveredJobsMessage
-  | AutoApplyJobMessage;
+  | AutoApplyJobMessage
+  | GetCommunityFieldsMessage
+  | FetchCommunityFieldsMessage;
 
 /** Discriminated union of messages sent to the content script. */
 export type ContentScriptMessage =

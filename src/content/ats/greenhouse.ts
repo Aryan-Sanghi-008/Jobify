@@ -5,7 +5,7 @@ import { ATS_SELECTORS, PORTAL_URLS } from '@/shared/constants';
 import {
   flattenProfile,
   getCoverLetters,
-  getLearnedFields,
+  getAutofillData,
 } from '@/shared/storage';
 import type {
   AppSettings,
@@ -154,9 +154,15 @@ export class GreenhouseATS {
       : [];
 
     const fields = dedupeFieldsByElement([...scannedFields, ...customFields]);
-    const [learnedFields] = await Promise.all([getLearnedFields()]);
+    const { learnedFields, communityFields } = await getAutofillData();
     const flatProfile = flattenProfile(profile);
-    const matchedFields = matchFields(fields, profile, learnedFields);
+    const matchedFields = matchFields(
+      fields,
+      profile,
+      learnedFields,
+      communityFields,
+      'greenhouse',
+    );
     const genericResult = fillFields(matchedFields, flatProfile, settings);
 
     return mergeFillResults(overrideResult, genericResult);

@@ -7,6 +7,10 @@ export const GITHUB_URL = 'https://github.com/your-org/jobify';
 
 export const ISSUE_URL = `${GITHUB_URL}/issues`;
 
+/** Placeholder until the community fields repo is published. */
+export const COMMUNITY_FIELDS_URL =
+  'https://raw.githubusercontent.com/your-org/job-autofill-fields/main/community-fields.json';
+
 export const PORTAL_URLS: Record<PortalName, string[]> = {
   linkedin: ['linkedin.com/jobs', 'linkedin.com/in'],
   naukri: ['naukri.com'],

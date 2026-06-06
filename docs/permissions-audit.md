@@ -42,9 +42,9 @@ Reference for Chrome Web Store review. `manifest.json` is strict JSON and cannot
 
 ### `alarms`
 
-**Why:** Periodically fetch matching jobs from public feeds (RemoteOK, Arbeitnow, optional Adzuna) every 4 hours when Job Preferences include a desired role.
+**Why:** Periodically fetch matching jobs from public feeds (RemoteOK, Arbeitnow, optional Adzuna) every 4 hours when Job Preferences include a desired role, and refresh community field mappings weekly from a public GitHub JSON file.
 
-**Used in:** `src/background/index.ts` (`setupJobFetchAlarm`, `chrome.alarms.onAlarm`).
+**Used in:** `src/background/index.ts` (`setupJobFetchAlarm`, `setupCommunityFieldsAlarm`, `chrome.alarms.onAlarm`).
 
 ## Host permissions
 
@@ -73,6 +73,12 @@ Reference for Chrome Web Store review. `manifest.json` is strict JSON and cannot
 **Why:** Optional Discover feed when the user configures a free Adzuna App ID and App Key in Job Preferences.
 
 **Used in:** `src/background/jobFetcher.ts`.
+
+### `https://raw.githubusercontent.com/*`
+
+**Why:** Fetch the public community field-mappings JSON file maintained on GitHub. The extension caches it locally and uses it as lower-priority autofill hints below personal learned fields.
+
+**Used in:** `src/shared/communityFields.ts`, `src/background/index.ts` (`runCommunityFieldsFetch`).
 
 ## Content scripts
 

@@ -1,10 +1,16 @@
 import Fuse from 'fuse.js';
+import {
+  invalidateCommunityFieldsCache,
+  resolveCommunityMatch,
+} from '@/shared/communityFields';
 import { FIELD_LABEL_MAP } from '@/shared/constants';
 import { flattenProfile, recordLearnedFieldUse } from '@/shared/storage';
 import type {
+  CommunityFieldsMap,
   FlatProfile,
   FormField,
   LearnedField,
+  PortalName,
   ProfileMatchKey,
   UserProfile,
 } from '@/shared/types';
@@ -104,6 +110,7 @@ function getLearnedFuseIndex(
 export function invalidateLearnedFieldsCache(): void {
   cachedLearnedFieldsVersion = null;
   cachedLearnedFuse = null;
+  invalidateCommunityFieldsCache();
 }
 
 function buildLearnedFuseIndex(entries: LearnedField[]): Fuse<LearnedFuseEntry> {
@@ -288,6 +295,8 @@ function matchSingleField(
   fuse: Fuse<LabelIndexEntry>,
   learnedFuse: Fuse<LearnedFuseEntry>,
   learnedFields: Record<string, LearnedField>,
+  communityFields: CommunityFieldsMap,
+  portal: PortalName,
 ): FormField {
   const normalizedLabel = normalizeLabel(field.label);
 
@@ -310,6 +319,20 @@ function matchSingleField(
       ...field,
       profileKey: exactMatch,
       confidence: 1,
+      unknown: false,
+    });
+  }
+
+  const communityMatch = resolveCommunityMatch(
+    normalizedLabel,
+    communityFields,
+    portal,
+  );
+  if (communityMatch) {
+    return applyConfidenceThreshold({
+      ...field,
+      profileKey: communityMatch.profileKey,
+      confidence: communityMatch.confidence,
       unknown: false,
     });
   }
@@ -359,13 +382,22 @@ export function matchFields(
   fields: FormField[],
   profile: UserProfile,
   learnedFields: Record<string, LearnedField>,
+  communityFields: CommunityFieldsMap = {},
+  portal: PortalName = 'generic',
 ): FormField[] {
   void flattenProfile(profile);
   const fuse = getFuseIndex();
   const learnedFuse = getLearnedFuseIndex(learnedFields);
 
   return fields.map((field) =>
-    matchSingleField(field, fuse, learnedFuse, learnedFields),
+    matchSingleField(
+      field,
+      fuse,
+      learnedFuse,
+      learnedFields,
+      communityFields,
+      portal,
+    ),
   );
 }
 

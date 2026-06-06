@@ -21,6 +21,11 @@ import {
   type BackupPreview,
   type ImportMode,
 } from '@/shared/backup';
+import {
+  buildContributionIssueUrl,
+  exportContributionEntries,
+  type CommunityContributionEntry,
+} from '@/shared/communityFields';
 import { GITHUB_URL, ISSUE_URL, VERSION } from '@/shared/constants';
 import { generateDiagnosticReport, Logger } from '@/shared/logger';
 import { checkStorageSize, validateApiKey } from '@/shared/security';
@@ -30,6 +35,7 @@ import {
   getCoverLetters,
   getJobPreferences,
   getLearnedFieldStats,
+  getLearnedFields,
   getSettings,
   saveJobPreferences,
   saveSettings,
@@ -37,7 +43,10 @@ import {
 import { getSelectorHealth } from '@/shared/selectorHealth';
 import type {
   AppSettings,
+  CommunityFieldsMeta,
   CoverLetterTemplate,
+  FetchCommunityFieldsResponse,
+  GetCommunityFieldsResponse,
   JobPreferences,
   PortalName,
   TestAiConnectionResponse,
@@ -272,6 +281,13 @@ export default function Settings() {
   });
   const [hasSavedAdzunaKey, setHasSavedAdzunaKey] = useState(false);
   const [isSavingJobPrefs, setIsSavingJobPrefs] = useState(false);
+  const [communityMeta, setCommunityMeta] = useState<CommunityFieldsMeta | null>(
+    null,
+  );
+  const [contributionEntries, setContributionEntries] = useState<
+    CommunityContributionEntry[]
+  >([]);
+  const [isRefreshingCommunity, setIsRefreshingCommunity] = useState(false);
 
   const importInputRef = useRef<HTMLInputElement>(null);
   const { showToast } = useToast();
@@ -287,17 +303,30 @@ export default function Settings() {
 
   useEffect(() => {
     void (async () => {
-      const [loadedSettings, templates, stats, storageSize, loadedJobPrefs] =
-        await Promise.all([
-          getSettings(),
-          getCoverLetters(),
-          getLearnedFieldStats(),
-          checkStorageSize(),
-          getJobPreferences(),
-        ]);
+      const [
+        loadedSettings,
+        templates,
+        stats,
+        storageSize,
+        loadedJobPrefs,
+        learnedFields,
+        communityResponse,
+      ] = await Promise.all([
+        getSettings(),
+        getCoverLetters(),
+        getLearnedFieldStats(),
+        checkStorageSize(),
+        getJobPreferences(),
+        getLearnedFields(),
+        chrome.runtime.sendMessage({
+          type: 'GET_COMMUNITY_FIELDS',
+        }) as Promise<GetCommunityFieldsResponse>,
+      ]);
       setSettings(loadedSettings);
       setCoverLetters(templates);
       setLearnedStats({ totalLearned: stats.totalLearned });
+      setCommunityMeta(communityResponse.meta);
+      setContributionEntries(exportContributionEntries(learnedFields));
       setJobPreferences(loadedJobPrefs);
       setHasSavedAdzunaKey(Boolean(loadedJobPrefs.adzunaAppKey));
       setJobPrefsDraft({
@@ -527,6 +556,49 @@ export default function Settings() {
     } finally {
       setIsSavingAiSettings(false);
     }
+  };
+
+  const formatCommunityFetchedAt = (timestamp: number | null): string => {
+    if (timestamp === null) {
+      return 'Never';
+    }
+
+    return new Date(timestamp).toLocaleString();
+  };
+
+  const handleRefreshCommunityFields = async () => {
+    setIsRefreshingCommunity(true);
+
+    try {
+      const response = (await chrome.runtime.sendMessage({
+        type: 'FETCH_COMMUNITY_FIELDS',
+      })) as FetchCommunityFieldsResponse;
+
+      if (!response.success) {
+        showToast(response.error ?? 'Community fetch failed', 'error');
+        return;
+      }
+
+      const communityResponse = (await chrome.runtime.sendMessage({
+        type: 'GET_COMMUNITY_FIELDS',
+      })) as GetCommunityFieldsResponse;
+      setCommunityMeta(communityResponse.meta);
+      showToast(`Loaded ${response.count} community mapping(s)`, 'success');
+    } catch {
+      showToast('Could not refresh community mappings', 'error');
+    } finally {
+      setIsRefreshingCommunity(false);
+    }
+  };
+
+  const handleContributeLearnedFields = () => {
+    if (contributionEntries.length === 0) {
+      showToast('No profile-key mappings to contribute yet', 'info');
+      return;
+    }
+
+    const url = buildContributionIssueUrl(contributionEntries);
+    void chrome.tabs.create({ url });
   };
 
   const handleSaveJobPreferences = async () => {
@@ -808,6 +880,68 @@ export default function Settings() {
             Remove API key
           </button>
         ) : null}
+      </SettingsSection>
+
+      <SettingsSection title="Community mappings">
+        <p className="mb-3 text-xs leading-relaxed text-gray-500">
+          Shared field labels are fetched weekly from a public GitHub file and
+          used below your personal learned fields. Only field labels and profile
+          key names are shared when you contribute — never your answers, email,
+          or CTC.
+        </p>
+
+        <div className="space-y-1 text-sm text-gray-700">
+          <p>
+            <span className="font-medium">Cached mappings:</span>{' '}
+            {communityMeta?.entryCount ?? 0}
+          </p>
+          <p>
+            <span className="font-medium">Last fetched:</span>{' '}
+            {formatCommunityFetchedAt(communityMeta?.lastFetchedAt ?? null)}
+          </p>
+          {communityMeta?.lastError ? (
+            <p className="text-xs text-red-600">
+              Last error: {communityMeta.lastError}
+            </p>
+          ) : null}
+        </div>
+
+        <button
+          type="button"
+          onClick={() => void handleRefreshCommunityFields()}
+          disabled={isRefreshingCommunity}
+          className="mt-3 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-70"
+        >
+          {isRefreshingCommunity ? 'Refreshing…' : 'Refresh community mappings'}
+        </button>
+
+        {contributionEntries.length > 0 ? (
+          <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+              Your contribution-eligible mappings
+            </p>
+            <ul className="mt-2 max-h-32 space-y-1 overflow-y-auto text-xs text-gray-700">
+              {contributionEntries.map((entry) => (
+                <li key={`${entry.label}:${entry.profileKey}`}>
+                  {entry.label} → {entry.profileKey}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : (
+          <p className="mt-3 text-xs text-gray-500">
+            Teach fields mapped to profile keys (not custom answers) to
+            contribute them.
+          </p>
+        )}
+
+        <button
+          type="button"
+          onClick={handleContributeLearnedFields}
+          className="mt-3 w-full rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
+        >
+          Contribute my learned fields
+        </button>
       </SettingsSection>
 
       <SettingsSection title="Developer">

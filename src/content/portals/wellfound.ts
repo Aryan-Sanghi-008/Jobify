@@ -6,7 +6,7 @@ import { selectorRegistry } from '@/shared/selectorRegistry';
 import {
   flattenProfile,
   getCoverLetters,
-  getLearnedFields,
+  getAutofillData,
 } from '@/shared/storage';
 import type { AppSettings, FillResult, UserProfile } from '@/shared/types';
 import {
@@ -296,10 +296,16 @@ export class WellfoundPortal {
       whyInterestedContent,
     );
 
-    const [learnedFields] = await Promise.all([getLearnedFields()]);
+    const { learnedFields, communityFields } = await getAutofillData();
     const flatProfile = flattenProfile(profile);
     const fields = scanPageFields(formRoot);
-    const matchedFields = matchFields(fields, profile, learnedFields);
+    const matchedFields = matchFields(
+      fields,
+      profile,
+      learnedFields,
+      communityFields,
+      'wellfound',
+    );
     const genericResult = fillFields(matchedFields, flatProfile, settings);
 
     return mergeFillResults(combinedResult, genericResult);

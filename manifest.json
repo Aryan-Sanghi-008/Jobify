@@ -18,7 +18,8 @@
     "http://*/*",
     "https://remoteok.com/*",
     "https://www.arbeitnow.com/*",
-    "https://api.adzuna.com/*"
+    "https://api.adzuna.com/*",
+    "https://raw.githubusercontent.com/*"
   ],
   "background": {
     "service_worker": "src/background/index.ts",

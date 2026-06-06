@@ -5,6 +5,7 @@ import {
   invalidateLearnedFieldsCache,
   matchFields,
 } from '@/content/matcher';
+import { parseCommunityFields } from '@/shared/communityFields';
 import { DEFAULT_PROFILE, flattenProfile } from '@/shared/storage';
 import type { FormField, LearnedField, UserProfile } from '@/shared/types';
 import { hashString, normalizeLabel } from '@/shared/utils';
@@ -140,6 +141,96 @@ describe('matchFields', () => {
     expect(matched.profileKey).toBe('fullName');
     expect(matched.unknown).toBe(false);
     expect(matched.confidence).toBeGreaterThanOrEqual(0.5);
+  });
+
+  it('prefers personal learned mapping over community mapping', () => {
+    const label = 'present ctc in lpa';
+    const learnedFields = makeLearnedField(normalizeLabel(label), 'expectedCTC');
+    const communityFields = parseCommunityFields({
+      [hashString(normalizeLabel(label))]: {
+        profileKey: 'currentCTC',
+        labels: [label],
+        portals: [],
+        votes: 20,
+      },
+    });
+
+    const [matched] = matchFields(
+      [makeField(label)],
+      testProfile,
+      learnedFields,
+      communityFields,
+      'naukri',
+    );
+
+    expect(matched.profileKey).toBe('expectedCTC');
+  });
+
+  it('uses community mapping before built-in fuzzy matching', () => {
+    const label = 'present compensation in lakhs';
+    const communityFields = parseCommunityFields({
+      [hashString(normalizeLabel(label))]: {
+        profileKey: 'currentCTC',
+        labels: [label],
+        portals: [],
+        votes: 8,
+      },
+    });
+
+    const [matched] = matchFields(
+      [makeField(label)],
+      testProfile,
+      {},
+      communityFields,
+      'naukri',
+    );
+
+    expect(matched.profileKey).toBe('currentCTC');
+    expect(matched.unknown).toBe(false);
+  });
+
+  it('keeps built-in exact mapping over community mapping', () => {
+    const label = 'Current CTC (in LPA)';
+    const communityFields = parseCommunityFields({
+      [hashString(normalizeLabel(label))]: {
+        profileKey: 'expectedCTC',
+        labels: [label],
+        portals: [],
+        votes: 20,
+      },
+    });
+
+    const [matched] = matchFields(
+      [makeField(label)],
+      testProfile,
+      {},
+      communityFields,
+      'naukri',
+    );
+
+    expect(matched.profileKey).toBe('currentCTC');
+  });
+
+  it('skips community mappings for other portals', () => {
+    const label = 'visa sponsorship required';
+    const communityFields = parseCommunityFields({
+      [hashString(normalizeLabel(label))]: {
+        profileKey: 'workAuthorization',
+        labels: [label],
+        portals: ['greenhouse'],
+        votes: 10,
+      },
+    });
+
+    const [matched] = matchFields(
+      [makeField(label)],
+      testProfile,
+      {},
+      communityFields,
+      'naukri',
+    );
+
+    expect(matched.unknown).toBe(true);
   });
 
   it('uses updated learned fields after cache invalidation', () => {

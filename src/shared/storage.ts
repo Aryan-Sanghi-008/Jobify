@@ -9,6 +9,8 @@ import {
 } from './security';
 import type {
   AppSettings,
+  CommunityFieldsMap,
+  CommunityFieldsMeta,
   CoverLetterTemplate,
   DiscoveredJob,
   DiscoveredJobsMeta,
@@ -36,6 +38,14 @@ export const DEFAULT_JOB_PREFERENCES: JobPreferences = {
 export const DEFAULT_DISCOVERED_JOBS_META: DiscoveredJobsMeta = {
   lastFetchedAt: null,
   lastError: null,
+};
+
+export const DEFAULT_COMMUNITY_FIELDS: CommunityFieldsMap = {};
+
+export const DEFAULT_COMMUNITY_FIELDS_META: CommunityFieldsMeta = {
+  lastFetchedAt: null,
+  lastError: null,
+  entryCount: 0,
 };
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -172,6 +182,7 @@ export interface AutofillData {
   profile: UserProfile | null;
   settings: AppSettings;
   learnedFields: Record<string, LearnedField>;
+  communityFields: CommunityFieldsMap;
 }
 
 export async function getAutofillData(): Promise<AutofillData> {
@@ -180,6 +191,7 @@ export async function getAutofillData(): Promise<AutofillData> {
       'profile',
       'settings',
       'learnedFields',
+      'communityFields',
     ]);
 
     return {
@@ -188,6 +200,9 @@ export async function getAutofillData(): Promise<AutofillData> {
       learnedFields: normalizeLearnedFieldsStorage(
         result.learnedFields as Record<string, unknown> | undefined,
       ),
+      communityFields:
+        (result.communityFields as CommunityFieldsMap | undefined) ??
+        DEFAULT_COMMUNITY_FIELDS,
     };
   } catch (error) {
     logStorageError('getAutofillData', error);
@@ -699,6 +714,49 @@ export async function updateDiscoveredJobsMeta(
     await storageSet({ discoveredJobsMeta: { ...current, ...meta } });
   } catch (error) {
     logStorageError('updateDiscoveredJobsMeta', error);
+    throw error;
+  }
+}
+
+export async function getCommunityFields(): Promise<CommunityFieldsMap> {
+  try {
+    const fields = await storageGet('communityFields');
+    return fields ?? DEFAULT_COMMUNITY_FIELDS;
+  } catch (error) {
+    logStorageError('getCommunityFields', error);
+    throw error;
+  }
+}
+
+export async function getCommunityFieldsMeta(): Promise<CommunityFieldsMeta> {
+  try {
+    const meta = await storageGet('communityFieldsMeta');
+    return { ...DEFAULT_COMMUNITY_FIELDS_META, ...meta };
+  } catch (error) {
+    logStorageError('getCommunityFieldsMeta', error);
+    throw error;
+  }
+}
+
+export async function saveCommunityFields(
+  fields: CommunityFieldsMap,
+): Promise<void> {
+  try {
+    await storageSet({ communityFields: fields });
+  } catch (error) {
+    logStorageError('saveCommunityFields', error);
+    throw error;
+  }
+}
+
+export async function updateCommunityFieldsMeta(
+  meta: Partial<CommunityFieldsMeta>,
+): Promise<void> {
+  try {
+    const current = await getCommunityFieldsMeta();
+    await storageSet({ communityFieldsMeta: { ...current, ...meta } });
+  } catch (error) {
+    logStorageError('updateCommunityFieldsMeta', error);
     throw error;
   }
 }

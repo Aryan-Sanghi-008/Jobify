@@ -15,6 +15,7 @@ import {
 } from '@/shared/storage';
 import type {
   AppSettings,
+  CommunityFieldsMap,
   ContentScriptMessage,
   CoverLetterTemplate,
   FillCoverLetterMessage,
@@ -80,6 +81,7 @@ interface AutofillModules {
   let lastFlatProfile: FlatProfile | null = null;
   let lastSettings: AppSettings | null = null;
   let lastLearnedFields: Record<string, LearnedField> = {};
+  let lastCommunityFields: CommunityFieldsMap = {};
   let lastCoverLetterTemplateId: string | undefined;
   let autofillModules: AutofillModules | null = null;
   let formStateMachine: FormStateMachine | null = null;
@@ -293,6 +295,8 @@ interface AutofillModules {
             fields,
             lastProfile,
             lastLearnedFields,
+            lastCommunityFields,
+            detectPortal(window.location.href),
           );
           return modules.fillFields(matchedFields, lastFlatProfile, lastSettings);
         },
@@ -422,8 +426,9 @@ interface AutofillModules {
       window.location.href,
     );
 
-    const { learnedFields } = await getAutofillData();
+    const { learnedFields, communityFields } = await getAutofillData();
     lastLearnedFields = learnedFields;
+    lastCommunityFields = communityFields;
 
     const { invalidateLearnedFieldsCache } = await loadAutofillModules();
     invalidateLearnedFieldsCache();
