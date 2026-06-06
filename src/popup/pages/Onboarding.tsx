@@ -1,5 +1,10 @@
-import { useState } from 'react';
+import { useRef, useState, type ChangeEvent } from 'react';
 import Spinner from '@/popup/components/Spinner';
+import {
+  ensureProfileLibrary,
+  parseFlexibleProfileImport,
+  replaceActiveProfileFromImport,
+} from '@/shared/profileLibrary';
 import {
   validateCtc,
   validateEmail,
@@ -31,6 +36,16 @@ const INPUT_CLASS =
   'w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500';
 const LABEL_CLASS = 'mb-1 block text-xs font-medium text-gray-700';
 const ERROR_CLASS = 'mt-1 text-xs text-red-600';
+const REQUIRED_MARK_CLASS = 'ml-0.5 text-red-600';
+
+const ONBOARDING_PROFILE_FIELDS: Array<keyof ProfileDraft> = [
+  'email',
+  'fullName',
+  'phone',
+  'currentCTC',
+  'expectedCTC',
+  'noticePeriod',
+];
 
 interface ProfileDraft {
   email: string;
@@ -94,7 +109,26 @@ function buildProfileFromDraft(draft: ProfileDraft): UserProfile {
   };
 }
 
-function validateProfileDraft(draft: ProfileDraft): Record<string, string> {
+function profileToDraft(profile: UserProfile): ProfileDraft {
+  return {
+    email: profile.personal.email.trim(),
+    fullName: profile.personal.fullName.trim(),
+    phone: profile.personal.phone.trim(),
+    currentCTC:
+      profile.professional.currentCTC > 0
+        ? String(profile.professional.currentCTC)
+        : '',
+    expectedCTC:
+      profile.professional.expectedCTC > 0
+        ? String(profile.professional.expectedCTC)
+        : '',
+    noticePeriod: String(profile.professional.noticePeriod),
+  };
+}
+
+function validateOnboardingProfileDraft(
+  draft: ProfileDraft,
+): Record<string, string> {
   const errors: Record<string, string> = {};
 
   const emailError = validateEmail(draft.email);
@@ -106,30 +140,53 @@ function validateProfileDraft(draft: ProfileDraft): Record<string, string> {
     errors.fullName = 'Full name is required';
   }
 
-  const phoneError = validatePhone(draft.phone);
-  if (phoneError) {
-    errors.phone = phoneError;
+  if (!draft.phone.trim()) {
+    errors.phone = 'Phone is required';
+  } else {
+    const phoneError = validatePhone(draft.phone);
+    if (phoneError) {
+      errors.phone = phoneError;
+    }
   }
 
-  const currentCtc = parseNumberInput(draft.currentCTC);
-  const currentCtcError = validateCtc(currentCtc, 'Current CTC');
-  if (currentCtcError) {
-    errors.currentCTC = currentCtcError;
+  if (!draft.currentCTC.trim()) {
+    errors.currentCTC = 'Current CTC is required';
+  } else {
+    const currentCtcError = validateCtc(
+      parseNumberInput(draft.currentCTC),
+      'Current CTC',
+    );
+    if (currentCtcError) {
+      errors.currentCTC = currentCtcError;
+    }
   }
 
-  const expectedCtc = parseNumberInput(draft.expectedCTC);
-  const expectedCtcError = validateCtc(expectedCtc, 'Expected CTC');
-  if (expectedCtcError) {
-    errors.expectedCTC = expectedCtcError;
+  if (!draft.expectedCTC.trim()) {
+    errors.expectedCTC = 'Expected CTC is required';
+  } else {
+    const expectedCtcError = validateCtc(
+      parseNumberInput(draft.expectedCTC),
+      'Expected CTC',
+    );
+    if (expectedCtcError) {
+      errors.expectedCTC = expectedCtcError;
+    }
   }
 
-  const noticePeriod = parseNumberInput(draft.noticePeriod);
-  const noticeError = validateNoticePeriod(noticePeriod);
-  if (noticeError) {
-    errors.noticePeriod = noticeError;
+  if (!draft.noticePeriod.trim()) {
+    errors.noticePeriod = 'Notice period is required';
+  } else {
+    const noticeError = validateNoticePeriod(parseNumberInput(draft.noticePeriod));
+    if (noticeError) {
+      errors.noticePeriod = noticeError;
+    }
   }
 
   return errors;
+}
+
+function isOnboardingProfileComplete(draft: ProfileDraft): boolean {
+  return Object.keys(validateOnboardingProfileDraft(draft)).length === 0;
 }
 
 async function completeOnboarding(): Promise<void> {
@@ -166,9 +223,27 @@ function ProgressIndicator({ step }: ProgressIndicatorProps) {
   );
 }
 
+function RequiredMark({ show }: { show: boolean }) {
+  if (!show) {
+    return null;
+  }
+
+  return (
+    <span className={REQUIRED_MARK_CLASS} aria-hidden="true">
+      *
+    </span>
+  );
+}
+
 export default function Onboarding({ onComplete }: OnboardingProps) {
+  const profileImportInputRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState(1);
   const [isSaving, setIsSaving] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [mandatoryFields, setMandatoryFields] = useState<Set<keyof ProfileDraft>>(
+    () => new Set(ONBOARDING_PROFILE_FIELDS),
+  );
   const [profileDraft, setProfileDraft] = useState<ProfileDraft>({
     email: '',
     fullName: '',
@@ -188,14 +263,86 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
   }>({});
 
   const updateProfileDraft = (updates: Partial<ProfileDraft>) => {
-    setProfileDraft((current) => ({ ...current, ...updates }));
-    setProfileErrors({});
+    setProfileDraft((current) => {
+      const next = { ...current, ...updates };
+      setProfileErrors((errors) => {
+        const nextErrors = { ...errors };
+        for (const field of Object.keys(updates) as Array<keyof ProfileDraft>) {
+          delete nextErrors[field];
+        }
+        return nextErrors;
+      });
+      setMandatoryFields((currentMandatory) => {
+        const nextMandatory = new Set(currentMandatory);
+        for (const field of Object.keys(updates) as Array<keyof ProfileDraft>) {
+          nextMandatory.delete(field);
+        }
+        return nextMandatory;
+      });
+      return next;
+    });
+  };
+
+  const handleImportProfileFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+
+    if (!file) {
+      return;
+    }
+
+    setIsImporting(true);
+    setImportError(null);
+
+    try {
+      const text = await file.text();
+      const parsed: unknown = JSON.parse(text);
+      const partial = parseFlexibleProfileImport(parsed);
+
+      if (!partial) {
+        setImportError(
+          'Invalid profile file. Include at least one supported section.',
+        );
+        return;
+      }
+
+      if (!partial.profile) {
+        setImportError('Import must include profile data to continue setup.');
+        return;
+      }
+
+      await ensureProfileLibrary();
+      await replaceActiveProfileFromImport(partial);
+
+      const draft = profileToDraft(partial.profile);
+
+      if (isOnboardingProfileComplete(draft)) {
+        await completeOnboarding();
+        onComplete();
+        return;
+      }
+
+      const errors = validateOnboardingProfileDraft(draft);
+      setProfileDraft(draft);
+      setProfileErrors(errors);
+      setMandatoryFields(
+        new Set(Object.keys(errors) as Array<keyof ProfileDraft>),
+      );
+      setStep(2);
+    } catch {
+      setImportError('Could not read or parse the profile file.');
+    } finally {
+      setIsImporting(false);
+    }
   };
 
   const handleSaveProfile = async () => {
-    const errors = validateProfileDraft(profileDraft);
+    const errors = validateOnboardingProfileDraft(profileDraft);
     if (Object.keys(errors).length > 0) {
       setProfileErrors(errors);
+      setMandatoryFields(
+        new Set(Object.keys(errors) as Array<keyof ProfileDraft>),
+      );
       return;
     }
 
@@ -302,6 +449,14 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
 
   return (
     <div className="popup-panel flex h-[600px] max-h-[600px] w-[380px] min-w-[360px] flex-col overflow-hidden">
+      <input
+        ref={profileImportInputRef}
+        type="file"
+        accept="application/json,.json"
+        className="hidden"
+        onChange={(event) => void handleImportProfileFile(event)}
+      />
+
       <header className="border-b border-gray-200 px-4 py-4">
         <div className="mb-3 flex items-center justify-between gap-3">
           <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
@@ -328,7 +483,16 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
             <ul className="space-y-3 text-sm text-gray-700">
               <li className="flex gap-2">
                 <span className="text-blue-600">•</span>
-                <span>Auto-fill any job form</span>
+                <span>
+                  Auto-fill job forms — including Workday, Greenhouse, and Lever
+                </span>
+              </li>
+              <li className="flex gap-2">
+                <span className="text-blue-600">•</span>
+                <span>
+                  Handles searchable dropdowns, repeatable experience/education
+                  sections, and radio groups
+                </span>
               </li>
               <li className="flex gap-2">
                 <span className="text-blue-600">•</span>
@@ -339,10 +503,33 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
               <li className="flex gap-2">
                 <span className="text-blue-600">•</span>
                 <span>
+                  Remembers tricky answers with learned fields over time
+                </span>
+              </li>
+              <li className="flex gap-2">
+                <span className="text-blue-600">•</span>
+                <span>
+                  Track applications, discover roles, and view analytics in the
+                  extension
+                </span>
+              </li>
+              <li className="flex gap-2">
+                <span className="text-blue-600">•</span>
+                <span>
+                  Save and switch between multiple profiles — import JSON
+                  bundles in Settings
+                </span>
+              </li>
+              <li className="flex gap-2">
+                <span className="text-blue-600">•</span>
+                <span>
                   Your data stays local — never sent to any server
                 </span>
               </li>
             </ul>
+            {importError ? (
+              <p className="text-xs text-red-600">{importError}</p>
+            ) : null}
           </div>
         ) : null}
 
@@ -356,14 +543,33 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                 The 6 fields that appear on every application.
               </p>
               <p className="mt-1 text-xs text-gray-500">
-                You can add more later.
+                You can add more later, or{' '}
+                <button
+                  type="button"
+                  onClick={() => profileImportInputRef.current?.click()}
+                  disabled={isImporting}
+                  className="font-medium text-blue-600 hover:text-blue-700 disabled:opacity-70"
+                >
+                  import an existing JSON profile
+                </button>
+                .
               </p>
+              {mandatoryFields.size > 0 && mandatoryFields.size < ONBOARDING_PROFILE_FIELDS.length ? (
+                <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  Some details were missing from your import. Complete the
+                  required fields below to continue.
+                </p>
+              ) : null}
+              {importError ? (
+                <p className="mt-2 text-xs text-red-600">{importError}</p>
+              ) : null}
             </div>
 
             <div className="space-y-3">
               <div>
                 <label className={LABEL_CLASS} htmlFor="onboarding-email">
                   Email
+                  <RequiredMark show={mandatoryFields.has('email')} />
                 </label>
                 <input
                   id="onboarding-email"
@@ -383,6 +589,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
               <div>
                 <label className={LABEL_CLASS} htmlFor="onboarding-full-name">
                   Full name
+                  <RequiredMark show={mandatoryFields.has('fullName')} />
                 </label>
                 <input
                   id="onboarding-full-name"
@@ -402,6 +609,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
               <div>
                 <label className={LABEL_CLASS} htmlFor="onboarding-phone">
                   Phone
+                  <RequiredMark show={mandatoryFields.has('phone')} />
                 </label>
                 <input
                   id="onboarding-phone"
@@ -422,6 +630,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                 <div>
                   <label className={LABEL_CLASS} htmlFor="onboarding-current-ctc">
                     Current CTC (LPA)
+                    <RequiredMark show={mandatoryFields.has('currentCTC')} />
                   </label>
                   <input
                     id="onboarding-current-ctc"
@@ -446,6 +655,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                     htmlFor="onboarding-expected-ctc"
                   >
                     Expected CTC (LPA)
+                    <RequiredMark show={mandatoryFields.has('expectedCTC')} />
                   </label>
                   <input
                     id="onboarding-expected-ctc"
@@ -468,6 +678,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
               <div>
                 <label className={LABEL_CLASS} htmlFor="onboarding-notice">
                   Notice period (days)
+                  <RequiredMark show={mandatoryFields.has('noticePeriod')} />
                 </label>
                 <input
                   id="onboarding-notice"
@@ -557,39 +768,101 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
             <ol className="list-decimal space-y-2 pl-5 text-sm text-gray-700">
               <li>Open a job listing</li>
               <li>Click the extension icon</li>
-              <li>Hit Auto-fill</li>
+              <li>Hit Auto-fill — or press Alt+Shift+F on the page</li>
             </ol>
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                Good to know
+              </p>
+              <ul className="mt-2 space-y-2 text-sm text-gray-700">
+                <li className="flex gap-2">
+                  <span className="text-blue-600">•</span>
+                  <span>
+                    Saved profiles in Settings let you import JSON and switch
+                    identities without re-entering data
+                  </span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="text-blue-600">•</span>
+                  <span>
+                    Use Tracker to log applications and Discover to browse
+                    matching roles
+                  </span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="text-blue-600">•</span>
+                  <span>
+                    Unknown form fields can be saved as learned fields and
+                    auto-filled next time
+                  </span>
+                </li>
+              </ul>
+            </div>
           </div>
         ) : null}
       </main>
 
       <footer className="border-t border-gray-200 px-4 py-4">
         {step === 1 ? (
-          <button
-            type="button"
-            onClick={() => setStep(2)}
-            className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
-          >
-            Get started
-          </button>
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={() => setStep(2)}
+              className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
+            >
+              Get started
+            </button>
+            <button
+              type="button"
+              onClick={() => profileImportInputRef.current?.click()}
+              disabled={isImporting}
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-70"
+            >
+              {isImporting ? (
+                <>
+                  <Spinner size="sm" className="text-gray-500" />
+                  <span>Importing…</span>
+                </>
+              ) : (
+                <span>Import existing profile</span>
+              )}
+            </button>
+          </div>
         ) : null}
 
         {step === 2 ? (
-          <button
-            type="button"
-            onClick={() => void handleSaveProfile()}
-            disabled={isSaving}
-            className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-70"
-          >
-            {isSaving ? (
-              <>
-                <Spinner size="sm" className="text-white" />
-                <span>Saving…</span>
-              </>
-            ) : (
-              <span>Save and continue</span>
-            )}
-          </button>
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={() => void handleSaveProfile()}
+              disabled={isSaving || isImporting}
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-70"
+            >
+              {isSaving ? (
+                <>
+                  <Spinner size="sm" className="text-white" />
+                  <span>Saving…</span>
+                </>
+              ) : (
+                <span>Save and continue</span>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => profileImportInputRef.current?.click()}
+              disabled={isSaving || isImporting}
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-70"
+            >
+              {isImporting ? (
+                <>
+                  <Spinner size="sm" className="text-gray-500" />
+                  <span>Importing…</span>
+                </>
+              ) : (
+                <span>Import existing profile</span>
+              )}
+            </button>
+          </div>
         ) : null}
 
         {step === 3 ? (
