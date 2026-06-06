@@ -317,7 +317,7 @@ function sortByDomOrder(fields: FormField[]): FormField[] {
   });
 }
 
-function collectCandidateElements(): HTMLElement[] {
+function collectCandidateElements(root: ParentNode = document): HTMLElement[] {
   if (typeof document === 'undefined') {
     return [];
   }
@@ -325,7 +325,7 @@ function collectCandidateElements(): HTMLElement[] {
   const elements = new Set<HTMLElement>();
 
   for (const selector of FIELD_SELECTORS) {
-    for (const element of safeQueryAll(selector)) {
+    for (const element of safeQueryAll(selector, root)) {
       elements.add(element);
     }
   }
@@ -352,11 +352,14 @@ function matchesButtonPatterns(text: string, patterns: RegExp[]): boolean {
   return patterns.some((pattern) => pattern.test(normalized));
 }
 
-function findActionButton(patterns: RegExp[]): HTMLButtonElement | null {
+function findActionButton(
+  patterns: RegExp[],
+  root: ParentNode = document,
+): HTMLButtonElement | null {
   const candidates: HTMLElement[] = [];
 
   for (const selector of BUTTON_SELECTORS) {
-    candidates.push(...safeQueryAll(selector));
+    candidates.push(...safeQueryAll(selector, root));
   }
 
   const visibleCandidates = candidates.filter(
@@ -377,9 +380,9 @@ function findActionButton(patterns: RegExp[]): HTMLButtonElement | null {
 /**
  * Scans the current page for unfilled, visible form fields.
  */
-export function scanPageFields(): FormField[] {
+export function scanPageFields(root: ParentNode = document): FormField[] {
   try {
-    const candidates = collectCandidateElements();
+    const candidates = collectCandidateElements(root);
     const fields = candidates
       .map((element) => buildFormField(element))
       .filter((field): field is FormField => field !== null);
@@ -393,9 +396,9 @@ export function scanPageFields(): FormField[] {
 /**
  * Finds a visible multi-page form "next" action button.
  */
-export function scanForNextButton(): HTMLButtonElement | null {
+export function scanForNextButton(root: ParentNode = document): HTMLButtonElement | null {
   try {
-    return findActionButton(NEXT_BUTTON_PATTERNS);
+    return findActionButton(NEXT_BUTTON_PATTERNS, root);
   } catch {
     return null;
   }
