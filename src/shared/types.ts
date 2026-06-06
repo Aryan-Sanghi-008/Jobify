@@ -273,6 +273,24 @@ export interface FillResult {
   errors: string[];
 }
 
+/** Serializable autofill summary sent over chrome.runtime (no DOM references). */
+export interface SerializableFillResult {
+  filled: number;
+  skipped: number;
+  unknown: string[];
+  errors: string[];
+}
+
+/** Response when autofill cannot run because the profile is incomplete. */
+export interface ProfileIncompleteResponse {
+  type: 'PROFILE_INCOMPLETE';
+}
+
+/** Union of possible TRIGGER_AUTOFILL responses from the content script. */
+export type TriggerAutofillResponse =
+  | ProfileIncompleteResponse
+  | SerializableFillResult;
+
 /** User-configurable extension behavior and appearance. */
 export interface AppSettings {
   /** Automatically trigger autofill when a job portal page loads. */
@@ -309,7 +327,15 @@ export type MessageType =
   | 'LEARN_FIELD'
   | 'GET_SETTINGS'
   | 'PING'
-  | 'PORTAL_DETECTED';
+  | 'PORTAL_DETECTED'
+  | 'APPLICATION_COMPLETE';
+
+/** Message types handled by the content script. */
+export type ContentMessageType =
+  | 'TRIGGER_AUTOFILL'
+  | 'FILL_COVER_LETTER'
+  | 'GET_PAGE_INFO'
+  | 'LEARN_FIELD_MAPPING';
 
 /** Request to load the stored user profile. */
 export interface GetProfileMessage {
@@ -351,6 +377,53 @@ export interface PortalDetectedMessage {
   portal: PortalName;
 }
 
+/** Notification from content script that a multi-page application form was submitted. */
+export interface ApplicationCompleteMessage {
+  type: 'APPLICATION_COMPLETE';
+  payload: {
+    company: string;
+    role: string;
+    portal: PortalName;
+    url: string;
+  };
+}
+
+/** Request to run autofill on the current page. */
+export interface TriggerAutofillMessage {
+  type: 'TRIGGER_AUTOFILL';
+}
+
+/** Request to fill the cover letter field on the current page. */
+export interface FillCoverLetterMessage {
+  type: 'FILL_COVER_LETTER';
+  templateId?: string;
+}
+
+/** Request for company, role, and portal metadata from the current page. */
+export interface GetPageInfoMessage {
+  type: 'GET_PAGE_INFO';
+}
+
+/** Request to persist a user-corrected field mapping from the content script. */
+export interface LearnFieldMappingMessage {
+  type: 'LEARN_FIELD_MAPPING';
+  labelHash: string;
+  profileKey: string;
+}
+
+/** Page metadata returned by GET_PAGE_INFO. */
+export interface PageInfoResponse {
+  company: string;
+  jobTitle: string;
+  portal: PortalName;
+}
+
+/** Result of a cover letter fill attempt. */
+export interface FillCoverLetterResponse {
+  success: boolean;
+  field_found: boolean;
+}
+
 /** Discriminated union of all extension runtime messages. */
 export type ExtensionMessage =
   | GetProfileMessage
@@ -359,7 +432,15 @@ export type ExtensionMessage =
   | LearnFieldMessage
   | GetSettingsMessage
   | PingMessage
-  | PortalDetectedMessage;
+  | PortalDetectedMessage
+  | ApplicationCompleteMessage;
+
+/** Discriminated union of messages sent to the content script. */
+export type ContentScriptMessage =
+  | TriggerAutofillMessage
+  | FillCoverLetterMessage
+  | GetPageInfoMessage
+  | LearnFieldMappingMessage;
 
 /** Error response returned when a message handler fails. */
 export interface MessageErrorResponse {

@@ -14,7 +14,7 @@ import type {
   PortalName,
   UserProfile,
 } from '@/shared/types';
-import { detectPortal } from '@/shared/utils';
+import { detectPortal, generateId } from '@/shared/utils';
 
 const MESSAGE_TYPES: MessageType[] = [
   'GET_PROFILE',
@@ -24,6 +24,7 @@ const MESSAGE_TYPES: MessageType[] = [
   'GET_SETTINGS',
   'PING',
   'PORTAL_DETECTED',
+  'APPLICATION_COMPLETE',
 ];
 
 const PORTAL_BADGE_ABBREVIATIONS: Record<Exclude<PortalName, 'generic'>, string> =
@@ -96,6 +97,14 @@ function validateMessage(message: unknown): message is ExtensionMessage {
       );
     case 'PORTAL_DETECTED':
       return typeof message.portal === 'string';
+    case 'APPLICATION_COMPLETE':
+      return (
+        isRecord(message.payload) &&
+        typeof message.payload.company === 'string' &&
+        typeof message.payload.role === 'string' &&
+        typeof message.payload.portal === 'string' &&
+        typeof message.payload.url === 'string'
+      );
     default:
       return false;
   }
@@ -128,6 +137,7 @@ async function openPopupOnInstall(): Promise<void> {
 
 async function handleMessage(
   message: ExtensionMessage,
+  sender: chrome.runtime.MessageSender,
 ): Promise<unknown> {
   assertRuntimeValid();
 
@@ -147,8 +157,26 @@ async function handleMessage(
       return getSettings();
     case 'PING':
       return { alive: true };
-    case 'PORTAL_DETECTED':
+    case 'PORTAL_DETECTED': {
+      if (sender.tab?.id !== undefined) {
+        await setPortalBadge(sender.tab.id, message.portal);
+      }
       return { success: true };
+    }
+    case 'APPLICATION_COMPLETE': {
+      const application: JobApplication = {
+        id: generateId(),
+        company: message.payload.company,
+        role: message.payload.role,
+        portal: message.payload.portal,
+        url: message.payload.url,
+        appliedAt: Date.now(),
+        status: 'applied',
+        notes: '',
+      };
+      await logApplication(application);
+      return { success: true };
+    }
     default: {
       const exhaustiveCheck: never = message;
       throw new Error(`Unhandled message type: ${String(exhaustiveCheck)}`);
@@ -227,7 +255,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         return;
       }
 
-      const response = await handleMessage(message);
+      const response = await handleMessage(message, _sender);
       sendResponse(response);
     } catch (error) {
       sendResponse({
