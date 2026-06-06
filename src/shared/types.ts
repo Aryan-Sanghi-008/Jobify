@@ -281,6 +281,9 @@ export interface SerializableFillResult {
   errors: string[];
 }
 
+/** Autofill result safe for popup state (unknown = field labels). */
+export type PopupFillResult = SerializableFillResult;
+
 /** Response when autofill cannot run because the profile is incomplete. */
 export interface ProfileIncompleteResponse {
   type: 'PROFILE_INCOMPLETE';

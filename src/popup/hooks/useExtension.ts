@@ -1,0 +1,192 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import type {
+  FillCoverLetterResponse,
+  PageInfoResponse,
+  PopupFillResult,
+  PortalName,
+  ProfileIncompleteResponse,
+  SerializableFillResult,
+  TriggerAutofillResponse,
+} from '@/shared/types';
+
+const MESSAGE_TIMEOUT_MS = 5000;
+
+const ERROR_RESULT = (message: string): PopupFillResult => ({
+  filled: 0,
+  skipped: 0,
+  unknown: [],
+  errors: [message],
+});
+
+function isProfileIncompleteResponse(
+  response: TriggerAutofillResponse,
+): response is ProfileIncompleteResponse {
+  return 'type' in response && response.type === 'PROFILE_INCOMPLETE';
+}
+
+function isSerializableFillResult(
+  response: TriggerAutofillResponse,
+): response is SerializableFillResult {
+  return 'filled' in response;
+}
+
+function normalizeAutofillResponse(response: TriggerAutofillResponse): PopupFillResult {
+  if (isProfileIncompleteResponse(response)) {
+    return ERROR_RESULT('Profile incomplete — add your email in Profile');
+  }
+
+  if (isSerializableFillResult(response)) {
+    return response;
+  }
+
+  return ERROR_RESULT('Unexpected autofill response');
+}
+
+/**
+ * Sends a message to a tab's content script with a 5-second timeout.
+ */
+export function sendTabMessage<T>(tabId: number, message: unknown): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      reject(new Error('Message timeout'));
+    }, MESSAGE_TIMEOUT_MS);
+
+    chrome.tabs.sendMessage(tabId, message, (response) => {
+      window.clearTimeout(timer);
+
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+
+      resolve(response as T);
+    });
+  });
+}
+
+async function getActiveTabId(): Promise<number | null> {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  return tab?.id ?? null;
+}
+
+async function injectContentScript(tabId: number): Promise<void> {
+  const manifest = chrome.runtime.getManifest();
+  const files = manifest.content_scripts?.[0]?.js;
+
+  if (!files?.length) {
+    throw new Error('Content script not configured');
+  }
+
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files,
+  });
+}
+
+async function sendToActiveTab<T>(message: unknown): Promise<T> {
+  const tabId = await getActiveTabId();
+
+  if (tabId === null) {
+    throw new Error('No active tab');
+  }
+
+  try {
+    return await sendTabMessage<T>(tabId, message);
+  } catch (firstError) {
+    try {
+      await injectContentScript(tabId);
+      return await sendTabMessage<T>(tabId, message);
+    } catch {
+      throw firstError instanceof Error ? firstError : new Error('Failed to reach content script');
+    }
+  }
+}
+
+export interface UseExtensionResult {
+  pageInfo: { company: string; jobTitle: string; portal: PortalName } | null;
+  isJobPage: boolean;
+  isFilling: boolean;
+  lastResult: PopupFillResult | null;
+  triggerAutofill: () => Promise<void>;
+  fillCoverLetter: (templateId: string) => Promise<void>;
+  learnFieldMapping: (labelHash: string, profileKey: string) => Promise<void>;
+}
+
+export function useExtension(): UseExtensionResult {
+  const [pageInfo, setPageInfo] = useState<PageInfoResponse | null>(null);
+  const [isFilling, setIsFilling] = useState(false);
+  const [lastResult, setLastResult] = useState<PopupFillResult | null>(null);
+
+  const isJobPage = pageInfo !== null && pageInfo.portal !== 'generic';
+
+  useEffect(() => {
+    void sendToActiveTab<PageInfoResponse>({ type: 'GET_PAGE_INFO' })
+      .then((info) => setPageInfo(info))
+      .catch(() => setPageInfo(null));
+  }, []);
+
+  const triggerAutofill = useCallback(async () => {
+    setIsFilling(true);
+    setLastResult(null);
+
+    try {
+      const response = await sendToActiveTab<TriggerAutofillResponse>({
+        type: 'TRIGGER_AUTOFILL',
+      });
+      setLastResult(normalizeAutofillResponse(response));
+    } catch (error) {
+      setLastResult(
+        ERROR_RESULT(error instanceof Error ? error.message : 'Unknown error'),
+      );
+    } finally {
+      setIsFilling(false);
+    }
+  }, []);
+
+  const fillCoverLetter = useCallback(async (templateId: string) => {
+    try {
+      await sendToActiveTab<FillCoverLetterResponse>({
+        type: 'FILL_COVER_LETTER',
+        templateId,
+      });
+    } catch {
+      // Caller may handle via UI feedback in a later prompt.
+    }
+  }, []);
+
+  const learnFieldMapping = useCallback(
+    async (labelHash: string, profileKey: string) => {
+      try {
+        await sendToActiveTab<{ success: true }>({
+          type: 'LEARN_FIELD_MAPPING',
+          labelHash,
+          profileKey,
+        });
+      } catch {
+        // Caller may handle via UI feedback in a later prompt.
+      }
+    },
+    [],
+  );
+
+  return useMemo(
+    () => ({
+      pageInfo,
+      isJobPage,
+      isFilling,
+      lastResult,
+      triggerAutofill,
+      fillCoverLetter,
+      learnFieldMapping,
+    }),
+    [
+      pageInfo,
+      isJobPage,
+      isFilling,
+      lastResult,
+      triggerAutofill,
+      fillCoverLetter,
+      learnFieldMapping,
+    ],
+  );
+}
