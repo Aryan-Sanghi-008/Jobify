@@ -21,7 +21,7 @@ import {
   type BackupPreview,
   type ImportMode,
 } from '@/shared/backup';
-import { VERSION } from '@/shared/constants';
+import { GITHUB_URL, ISSUE_URL, VERSION } from '@/shared/constants';
 import { generateDiagnosticReport, Logger } from '@/shared/logger';
 import { checkStorageSize } from '@/shared/security';
 import {
@@ -41,8 +41,6 @@ const INPUT_CLASS =
 const SECTION_TITLE_CLASS =
   'text-xs font-semibold uppercase tracking-wide text-gray-500';
 const LABEL_CLASS = 'text-sm text-gray-800';
-const GITHUB_URL = 'https://github.com/your-org/job-autofill';
-const ISSUE_URL = 'https://github.com/your-org/job-autofill/issues';
 
 interface ImportPreviewDialogProps {
   preview: BackupPreview;
@@ -584,6 +582,14 @@ export default function Settings() {
           ) : null}
           <p>
             <span className="font-medium">Version</span> {VERSION}
+          </p>
+          <p className="text-xs leading-relaxed text-gray-600">
+            All your data is stored locally on your device using Chrome&apos;s storage
+            API. Nothing is ever sent to any server. We have no servers.
+          </p>
+          <p className="text-xs leading-relaxed text-gray-600">
+            Released under the MIT License. See the LICENSE file in the project
+            repository.
           </p>
           <a
             href={GITHUB_URL}

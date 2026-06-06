@@ -1,5 +1,4 @@
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
-import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import type {
   EducationEntry,
   ExperienceEntry,
@@ -8,7 +7,7 @@ import type {
   UserProfile,
 } from '@/shared/types';
 
-GlobalWorkerOptions.workerSrc = workerUrl;
+GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('pdf.worker.min.mjs');
 
 const LARGE_FILE_BYTES = 5 * 1024 * 1024;
 

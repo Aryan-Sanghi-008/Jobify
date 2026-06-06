@@ -44,6 +44,21 @@ For interactive test runs:
 npm run test:watch
 ```
 
+End-to-end tests (requires Chromium; install once with `npx playwright install chromium`):
+
+```bash
+npm run test:e2e
+```
+
+### Chrome Web Store compliance
+
+Store listing copy and permission justifications for reviewers:
+
+- [docs/store-listing.md](docs/store-listing.md)
+- [docs/permissions-audit.md](docs/permissions-audit.md)
+
+Upload `store/icons/icon128.png` as the dashboard promotional icon before submission.
+
 ### Build
 
 Production build (outputs to `dist/`):

@@ -2,6 +2,11 @@ import type { FlatProfile, PortalName } from './types';
 
 export const VERSION = '0.1.0';
 
+/** Replace with your repository URL before Chrome Web Store submission. */
+export const GITHUB_URL = 'https://github.com/your-org/jobify';
+
+export const ISSUE_URL = `${GITHUB_URL}/issues`;
+
 export const PORTAL_URLS: Record<PortalName, string[]> = {
   linkedin: ['linkedin.com/jobs', 'linkedin.com/in'],
   naukri: ['naukri.com'],
