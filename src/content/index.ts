@@ -85,6 +85,7 @@ interface AutofillModules {
   let lastCommunityFields: CommunityFieldsMap = {};
   let lastCoverLetterTemplateId: string | undefined;
   let autofillModules: AutofillModules | null = null;
+  let workdayModule: typeof import('@/content/ats/workday') | null = null;
   let formStateMachine: FormStateMachine | null = null;
   let excessiveFieldsWarned = false;
 
@@ -272,11 +273,31 @@ interface AutofillModules {
     }
   }
 
+  async function loadWorkdayModule(): Promise<typeof import('@/content/ats/workday')> {
+    if (!workdayModule) {
+      workdayModule = await import('@/content/ats/workday');
+    }
+
+    return workdayModule;
+  }
+
   async function ensureFormStateMachine(): Promise<FormStateMachine> {
     const modules = await loadAutofillModules();
+    const workday = await loadWorkdayModule();
 
     if (!formStateMachine) {
       formStateMachine = new modules.FormStateMachine({
+        preparePage: async (profile: UserProfile) => {
+          const { ensureRepeatableSections } = await import(
+            '@/content/repeatableSections'
+          );
+          await ensureRepeatableSections(profile);
+
+          const portal = detectPortal(window.location.href);
+          if (portal === 'workday') {
+            await workday.prepareWorkdayPage(profile);
+          }
+        },
         scanFields: () => {
           const scanResult = modules.scanPageFieldsWithMeta();
 
@@ -292,14 +313,32 @@ interface AutofillModules {
             throw new Error('Autofill context is not initialized');
           }
 
+          const portal = detectPortal(window.location.href);
+
+          if (portal === 'workday') {
+            return workday.runWorkdayMatchAndFill(
+              workday.filterWorkdayFields(fields),
+              lastProfile,
+              lastSettings,
+              lastLearnedFields,
+              lastCommunityFields,
+              lastFlatProfile,
+            );
+          }
+
           const matchedFields = modules.matchFields(
             fields,
             lastProfile,
             lastLearnedFields,
             lastCommunityFields,
-            detectPortal(window.location.href),
+            portal,
           );
-          return modules.fillFields(matchedFields, lastFlatProfile, lastSettings);
+          return modules.fillFields(
+            matchedFields,
+            lastFlatProfile,
+            lastSettings,
+            lastProfile,
+          );
         },
         findNextButton: () => modules.scanForNextButton(),
         clickNext: (button: HTMLButtonElement) => {

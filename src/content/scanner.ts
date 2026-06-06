@@ -1,9 +1,9 @@
 import { VERSION } from '@/shared/constants';
 import { selectorRegistry } from '@/shared/selectorRegistry';
-import type { FormField, FormFieldType } from '@/shared/types';
+import type { FormField, FormFieldType, FormSectionType } from '@/shared/types';
 import { detectPortal, isElementVisible, normalizeLabel } from '@/shared/utils';
 
-export const MAX_SCAN_FIELDS = 50;
+export const MAX_SCAN_FIELDS = 120;
 
 export interface ScanPageFieldsResult {
   fields: FormField[];
@@ -37,6 +37,17 @@ const FIELD_SELECTORS = [
   '[role="combobox"]',
   '[role="listbox"]',
   '[role="textbox"]',
+  '[role="radio"]',
+];
+
+const SECTION_CONTEXT_PATTERNS: Array<{
+  type: FormSectionType;
+  pattern: RegExp;
+}> = [
+  { type: 'experience', pattern: /work experience\s*(\d+)/i },
+  { type: 'experience', pattern: /experience\s*(\d+)/i },
+  { type: 'education', pattern: /education\s*(\d+)/i },
+  { type: 'skills', pattern: /^skills$/i },
 ];
 
 const BUTTON_SELECTORS = ['button', 'input[type="submit"]', '[role="button"]'];
@@ -207,6 +218,14 @@ function detectFieldType(element: HTMLElement): FormFieldType {
   const role = element.getAttribute('role')?.toLowerCase();
   const placeholder = element.getAttribute('placeholder') ?? '';
 
+  if (role === 'radio') {
+    return 'radio';
+  }
+
+  if (isSkillsMultiSelectWidget(element)) {
+    return 'multiselect';
+  }
+
   if (
     element instanceof HTMLSelectElement ||
     role === 'combobox' ||
@@ -274,6 +293,10 @@ function isCaptchaField(element: HTMLElement): boolean {
 }
 
 function isAlreadyFilled(element: HTMLElement): boolean {
+  if (element.getAttribute('role') === 'radio') {
+    return element.getAttribute('aria-checked') === 'true';
+  }
+
   if (element instanceof HTMLInputElement) {
     if (element.type === 'checkbox' || element.type === 'radio') {
       return element.checked;
@@ -305,18 +328,146 @@ function shouldIncludeField(element: HTMLElement): boolean {
   );
 }
 
+function isSkillsMultiSelectWidget(element: HTMLElement): boolean {
+  const sectionRoot =
+    element.closest('section, fieldset, [data-automation-id], form, div') ??
+    element.parentElement;
+
+  if (!sectionRoot) {
+    return false;
+  }
+
+  const sectionText = getTrimmedText(sectionRoot.textContent).toLowerCase();
+  const hasSkillsContext = /\bskills\b/.test(sectionText);
+  const hasSearchInput =
+    element instanceof HTMLInputElement &&
+    element.type !== 'checkbox' &&
+    element.type !== 'radio';
+
+  const hasListbox = sectionRoot.querySelector('[role="listbox"], [role="option"]');
+
+  return hasSkillsContext && hasSearchInput && hasListbox !== null;
+}
+
+interface SectionContext {
+  sectionType?: FormSectionType;
+  sectionIndex?: number;
+  sectionTitle?: string;
+}
+
+function parseSectionHeadingText(headingText: string): SectionContext {
+  for (const { type, pattern } of SECTION_CONTEXT_PATTERNS) {
+    const match = headingText.match(pattern);
+    if (match) {
+      const parsedIndex = match[1] ? Number.parseInt(match[1], 10) - 1 : 0;
+      return {
+        sectionType: type,
+        sectionIndex: Number.isNaN(parsedIndex) ? 0 : parsedIndex,
+        sectionTitle: headingText,
+      };
+    }
+  }
+
+  return {};
+}
+
+function findNearestSectionHeading(element: HTMLElement): SectionContext {
+  let container: HTMLElement | null = element.parentElement;
+
+  while (container) {
+    const headings = safeQueryAll(
+      'h1, h2, h3, h4, legend, [role="heading"]',
+      container,
+    );
+
+    let nearestHeading: HTMLElement | null = null;
+
+    for (const heading of headings) {
+      const position = heading.compareDocumentPosition(element);
+      const followsHeading = (position & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+
+      if (followsHeading || heading.contains(element)) {
+        nearestHeading = heading;
+      }
+    }
+
+    if (nearestHeading) {
+      const parsed = parseSectionHeadingText(
+        getTrimmedText(nearestHeading.textContent),
+      );
+      if (parsed.sectionType) {
+        return parsed;
+      }
+    }
+
+    container = container.parentElement;
+  }
+
+  return {};
+}
+
+function extractSectionContext(element: HTMLElement): SectionContext {
+  const automationId = element.getAttribute('data-automation-id') ?? '';
+
+  if (/workExperience/i.test(automationId)) {
+    const indexMatch = automationId.match(/(\d+)/);
+    return {
+      sectionType: 'experience',
+      sectionIndex: indexMatch
+        ? Math.max(Number.parseInt(indexMatch[1], 10) - 1, 0)
+        : 0,
+      sectionTitle: indexMatch
+        ? `Work Experience ${indexMatch[1]}`
+        : 'Work Experience',
+    };
+  }
+
+  if (/education/i.test(automationId)) {
+    const indexMatch = automationId.match(/(\d+)/);
+    return {
+      sectionType: 'education',
+      sectionIndex: indexMatch
+        ? Math.max(Number.parseInt(indexMatch[1], 10) - 1, 0)
+        : 0,
+      sectionTitle: indexMatch ? `Education ${indexMatch[1]}` : 'Education',
+    };
+  }
+
+  if (element.matches('h1, h2, h3, h4, legend, [role="heading"]')) {
+    const parsed = parseSectionHeadingText(getTrimmedText(element.textContent));
+    if (parsed.sectionType) {
+      return parsed;
+    }
+  }
+
+  return findNearestSectionHeading(element);
+}
+
+function buildCompositeLabel(baseLabel: string, context: SectionContext): string {
+  if (!context.sectionTitle) {
+    return baseLabel;
+  }
+
+  return `${context.sectionTitle} > ${baseLabel}`;
+}
+
 function buildFormField(element: HTMLElement): FormField | null {
   if (!shouldIncludeField(element)) {
     return null;
   }
 
+  const sectionContext = extractSectionContext(element);
+  const baseLabel = extractLabel(element);
+
   return {
     element,
-    label: extractLabel(element),
+    label: buildCompositeLabel(baseLabel, sectionContext),
     type: detectFieldType(element),
     confidence: 0,
     filled: false,
     unknown: false,
+    sectionType: sectionContext.sectionType,
+    sectionIndex: sectionContext.sectionIndex,
   };
 }
 

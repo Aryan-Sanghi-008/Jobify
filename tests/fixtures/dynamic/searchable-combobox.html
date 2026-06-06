@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Searchable Combobox</title>
+  </head>
+  <body>
+    <section>
+      <h2>Education 1</h2>
+      <label>Degree</label>
+      <div role="combobox" aria-expanded="false">
+        <input type="text" aria-label="Degree" />
+        <div role="listbox" hidden>
+          <div role="option">Bachelor of Science</div>
+          <div role="option">Master of Science</div>
+        </div>
+      </div>
+    </section>
+    <script>
+      const combobox = document.querySelector('[role="combobox"]');
+      const input = combobox.querySelector('input');
+      const listbox = combobox.querySelector('[role="listbox"]');
+
+      input.addEventListener('input', () => {
+        listbox.hidden = false;
+        combobox.setAttribute('aria-expanded', 'true');
+      });
+
+      listbox.querySelectorAll('[role="option"]').forEach((option) => {
+        option.addEventListener('click', () => {
+          input.value = option.textContent.trim();
+          listbox.hidden = true;
+        });
+      });
+    </script>
+  </body>
+</html>

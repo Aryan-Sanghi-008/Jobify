@@ -1,6 +1,15 @@
+import {
+  fillComboboxSync,
+  fillMultiSelectSearchSync,
+  findMatchingOption,
+} from '@/content/controls/combobox';
 import { fillFields } from '@/content/filler';
 import { FormStateMachine } from '@/content/formStateMachine';
 import { matchFields } from '@/content/matcher';
+import {
+  ensureEntryCount,
+  getEntryContainers,
+} from '@/content/repeatableSections';
 import { scanForNextButton, scanPageFields } from '@/content/scanner';
 import { ATS_SELECTORS, PORTAL_URLS } from '@/shared/constants';
 import { selectorRegistry } from '@/shared/selectorRegistry';
@@ -46,6 +55,10 @@ const WORKDAY_SELECTORS = {
     '[data-automation-id*="education"][data-automation-id*="school" i], [data-automation-id*="school"]',
   educationDegree:
     '[data-automation-id*="education"][data-automation-id*="degree" i], [data-automation-id*="degree"]',
+  experienceLocation:
+    '[data-automation-id*="workExperience"][data-automation-id*="location" i], [data-automation-id*="location"]',
+  skillsSection:
+    '[data-automation-id*="skills" i], [data-automation-id*="skillSection" i]',
   dateMonth: '[data-automation-id*="dateSectionMonth" i]',
   dateDay: '[data-automation-id*="dateSectionDay" i]',
   dateYear: '[data-automation-id*="dateSectionYear" i]',
@@ -83,12 +96,6 @@ const DROPDOWN_TRIGGER_SELECTORS = [
   '[role="combobox"]',
   '[role="listbox"]',
   'button[aria-expanded]',
-];
-
-const DROPDOWN_OPTION_SELECTORS = [
-  '[role="option"]',
-  '[data-automation-id*="option" i]',
-  'li[role="option"]',
 ];
 
 export type WorkdaySection =
@@ -139,18 +146,7 @@ function getTrimmedText(value: string | null | undefined): string {
   return value?.replace(/\s+/g, ' ').trim() ?? '';
 }
 
-function matchesText(value: string, target: string): boolean {
-  const left = value.trim().toLowerCase();
-  const right = target.trim().toLowerCase();
-
-  if (!left || !right) {
-    return false;
-  }
-
-  return left.includes(right) || right.includes(left);
-}
-
-function findDropdownTrigger(container: Element): HTMLElement | null {
+function findDropdownTrigger(container: ParentNode): HTMLElement | null {
   for (const selector of DROPDOWN_TRIGGER_SELECTORS) {
     const match = container.querySelector(selector);
     if (match instanceof HTMLElement && isElementVisible(match)) {
@@ -158,65 +154,33 @@ function findDropdownTrigger(container: Element): HTMLElement | null {
     }
   }
 
-  if (container instanceof HTMLElement && isElementVisible(container)) {
-    const role = container.getAttribute('role')?.toLowerCase();
-    if (role === 'combobox' || role === 'listbox') {
-      return container;
-    }
+  if (
+    container instanceof HTMLElement &&
+    isElementVisible(container) &&
+    (container.getAttribute('role') === 'combobox' ||
+      container.getAttribute('role') === 'listbox')
+  ) {
+    return container;
   }
 
   return null;
 }
 
-function findMatchingOption(value: string, root: ParentNode = document): HTMLElement | null {
-  const normalized = value.trim().toLowerCase();
-  if (!normalized) {
-    return null;
-  }
-
-  for (const selector of DROPDOWN_OPTION_SELECTORS) {
-    const options = root.querySelectorAll(selector);
-
-    for (const option of options) {
-      if (!(option instanceof HTMLElement) || !isElementVisible(option)) {
-        continue;
-      }
-
-      const text = getTrimmedText(option.textContent);
-      if (matchesText(text, normalized)) {
-        return option;
-      }
-    }
-  }
-
-  return null;
-}
-
-function fillWorkdayDropdownSync(container: Element, value: string): boolean {
-  if (!value.trim()) {
-    return false;
+function fillWorkdayDropdownSync(container: ParentNode, value: string): boolean {
+  if (container instanceof HTMLElement) {
+    return fillComboboxSync(container, value);
   }
 
   const trigger = findDropdownTrigger(container);
-  if (!trigger) {
-    return false;
+  if (trigger instanceof HTMLElement) {
+    return fillComboboxSync(trigger, value);
   }
 
-  trigger.click();
-  syncDelay(WORKDAY_DELAY_MS);
-
-  const option = findMatchingOption(value);
-  if (!option) {
-    return false;
-  }
-
-  option.click();
-  syncDelay(WORKDAY_DELAY_MS);
-  return true;
+  return false;
 }
 
 export async function fillWorkdayDropdown(
-  container: Element,
+  container: ParentNode,
   value: string,
 ): Promise<boolean> {
   if (!value.trim()) {
@@ -292,9 +256,17 @@ export async function fillWorkdayDateGroup(
   return monthFilled && dayFilled && yearFilled;
 }
 
-function fillWorkdayDateGroupSync(container: Element, date: string): boolean {
+function hasDateControls(container: ParentNode): boolean {
+  return Boolean(
+    container.querySelector(WORKDAY_SELECTORS.dateMonth) ||
+      container.querySelector(WORKDAY_SELECTORS.dateDay) ||
+      container.querySelector(WORKDAY_SELECTORS.dateYear),
+  );
+}
+
+function fillWorkdayDateGroupSync(container: ParentNode, date: string): boolean {
   const parts = parseDateParts(date);
-  if (!parts) {
+  if (!parts || !hasDateControls(container)) {
     return false;
   }
 
@@ -453,73 +425,226 @@ function fillMyInformation(
   return result;
 }
 
-function fillMyExperience(profile: UserProfile, formRoot: ParentNode): FillResult {
-  const result = emptyFillResult();
-  const experience = profile.experience[0];
-  const education = profile.education[0];
+function fillTextInContainer(
+  container: ParentNode,
+  selector: string,
+  value: string,
+): boolean {
+  if (!value.trim()) {
+    return false;
+  }
 
-  if (experience) {
-    if (
-      fillTextControl(formRoot, WORKDAY_SELECTORS.experienceCompany, experience.company)
-    ) {
-      result.filled += 1;
+  const element = container.querySelector(selector);
+  if (
+    !(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement)
+  ) {
+    return false;
+  }
+
+  simulateUserInput(element, value);
+  return element.value === value;
+}
+
+function fillDropdownInContainer(
+  container: ParentNode,
+  selector: string,
+  value: string,
+): boolean {
+  const element = container.querySelector(selector);
+  if (!(element instanceof HTMLElement)) {
+    return false;
+  }
+
+  return fillWorkdayDropdownSync(element, value);
+}
+
+function fillCurrentWorkCheckbox(container: ParentNode, current: boolean): boolean {
+  if (!current) {
+    return false;
+  }
+
+  const checkboxes = container.querySelectorAll('input[type="checkbox"]');
+  for (const checkbox of checkboxes) {
+    if (!(checkbox instanceof HTMLInputElement)) {
+      continue;
     }
 
-    if (fillTextControl(formRoot, WORKDAY_SELECTORS.experienceTitle, experience.title)) {
-      result.filled += 1;
-    }
-
-    if (
-      fillTextControl(
-        formRoot,
-        WORKDAY_SELECTORS.experienceDescription,
-        experience.description,
-      )
-    ) {
-      result.filled += 1;
-    }
-
-    const dateContainers = formRoot.querySelectorAll(
-      '[data-automation-id*="workExperience" i]',
+    const labelText = getTrimmedText(
+      checkbox.closest('label')?.textContent ??
+        document.querySelector(`label[for="${CSS.escape(checkbox.id)}"]`)?.textContent,
     );
-    const dateContainer = dateContainers[0];
 
-    if (dateContainer) {
-      if (fillWorkdayDateGroupSync(dateContainer, experience.startDate)) {
-        result.filled += 1;
-      }
-
-      if (!experience.current && fillWorkdayDateGroupSync(dateContainer, experience.endDate)) {
-        result.filled += 1;
-      }
+    if (/currently work|still working/i.test(labelText) && !checkbox.checked) {
+      checkbox.click();
+      return checkbox.checked;
     }
   }
 
-  if (education) {
-    if (
-      fillTextControl(formRoot, WORKDAY_SELECTORS.educationSchool, education.institution)
-    ) {
-      result.filled += 1;
-    }
+  return false;
+}
 
-    if (fillTextControl(formRoot, WORKDAY_SELECTORS.educationDegree, education.degree)) {
-      result.filled += 1;
-    }
+function fillExperienceEntry(
+  container: ParentNode,
+  experience: UserProfile['experience'][number],
+  city: string,
+): FillResult {
+  const result = emptyFillResult();
 
-    const educationContainers = formRoot.querySelectorAll(
-      '[data-automation-id*="education" i]',
-    );
-    const educationContainer = educationContainers[0];
+  if (fillTextInContainer(container, WORKDAY_SELECTORS.experienceCompany, experience.company)) {
+    result.filled += 1;
+  }
 
-    if (educationContainer) {
-      const graduationDate = `${education.graduationYear}-06-01`;
-      if (fillWorkdayDateGroupSync(educationContainer, graduationDate)) {
-        result.filled += 1;
-      }
-    }
+  if (fillTextInContainer(container, WORKDAY_SELECTORS.experienceTitle, experience.title)) {
+    result.filled += 1;
+  }
+
+  if (fillTextInContainer(container, WORKDAY_SELECTORS.experienceLocation, city)) {
+    result.filled += 1;
+  }
+
+  if (
+    fillTextInContainer(
+      container,
+      WORKDAY_SELECTORS.experienceDescription,
+      experience.description,
+    )
+  ) {
+    result.filled += 1;
+  }
+
+  if (fillCurrentWorkCheckbox(container, experience.current)) {
+    result.filled += 1;
+  }
+
+  if (fillWorkdayDateGroupSync(container, experience.startDate)) {
+    result.filled += 1;
+  }
+
+  if (!experience.current && fillWorkdayDateGroupSync(container, experience.endDate)) {
+    result.filled += 1;
   }
 
   return result;
+}
+
+function fillEducationEntry(
+  container: ParentNode,
+  education: UserProfile['education'][number],
+): FillResult {
+  const result = emptyFillResult();
+
+  if (
+    fillDropdownInContainer(container, WORKDAY_SELECTORS.educationSchool, education.institution) ||
+    fillTextInContainer(container, WORKDAY_SELECTORS.educationSchool, education.institution)
+  ) {
+    result.filled += 1;
+  }
+
+  if (
+    fillDropdownInContainer(container, WORKDAY_SELECTORS.educationDegree, education.degree) ||
+    fillTextInContainer(container, WORKDAY_SELECTORS.educationDegree, education.degree)
+  ) {
+    result.filled += 1;
+  }
+
+  const gpaSelectors = [
+    'input[aria-label*="GPA" i]',
+    'input[aria-label*="result" i]',
+    '[data-automation-id*="gpa" i]',
+    '[data-automation-id*="grade" i]',
+  ];
+
+  for (const selector of gpaSelectors) {
+    if (fillTextInContainer(container, selector, education.percentage)) {
+      result.filled += 1;
+      break;
+    }
+  }
+
+  const graduationDate = `${education.graduationYear}-06-01`;
+  if (fillWorkdayDateGroupSync(container, graduationDate)) {
+    result.filled += 1;
+  }
+
+  return result;
+}
+
+function fillSkills(profile: UserProfile, formRoot: ParentNode): FillResult {
+  const result = emptyFillResult();
+  if (profile.skills.length === 0) {
+    return result;
+  }
+
+  const skillsRoot =
+    formRoot.querySelector(WORKDAY_SELECTORS.skillsSection) ??
+    Array.from(formRoot.querySelectorAll('section, fieldset, div')).find((node) =>
+      /\bskills\b/i.test(getTrimmedText(node.textContent)),
+    );
+
+  if (!skillsRoot) {
+    return result;
+  }
+
+  const filledCount = fillMultiSelectSearchSync(skillsRoot, profile.skills);
+  result.filled += filledCount;
+  return result;
+}
+
+function fillMyExperience(profile: UserProfile, formRoot: ParentNode): FillResult {
+  let result = emptyFillResult();
+  const experienceContainers = getEntryContainers('experience');
+
+  profile.experience.forEach((experience, index) => {
+    const container = experienceContainers[index];
+    if (!container) {
+      return;
+    }
+
+    result = mergeFillResults(
+      result,
+      fillExperienceEntry(container, experience, profile.personal.city),
+    );
+  });
+
+  const educationContainers = getEntryContainers('education');
+  profile.education.forEach((education, index) => {
+    const container = educationContainers[index];
+    if (!container) {
+      return;
+    }
+
+    result = mergeFillResults(result, fillEducationEntry(container, education));
+  });
+
+  result = mergeFillResults(result, fillSkills(profile, formRoot));
+  return result;
+}
+
+export async function prepareWorkdayPage(profile: UserProfile): Promise<void> {
+  await ensureEntryCount('experience', profile.experience.length);
+  await ensureEntryCount('education', profile.education.length);
+}
+
+export function runWorkdayMatchAndFill(
+  fields: FormField[],
+  profile: UserProfile,
+  settings: AppSettings,
+  learnedFields: Record<string, LearnedField>,
+  communityFields: CommunityFieldsMap,
+  flatProfile: FlatProfile,
+  formRoot: ParentNode = document,
+): FillResult {
+  const section = detectWorkdaySection(formRoot);
+  return fillWorkdayStep(
+    section,
+    fields,
+    profile,
+    settings,
+    formRoot,
+    learnedFields,
+    communityFields,
+    flatProfile,
+  );
 }
 
 function findDateContainer(element: HTMLElement): Element | null {

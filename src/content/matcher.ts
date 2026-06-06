@@ -1,4 +1,5 @@
 import Fuse from 'fuse.js';
+import { resolveSectionProfileKey } from '@/content/profileResolver';
 import {
   invalidateCommunityFieldsCache,
   resolveCommunityMatch,
@@ -290,6 +291,24 @@ function getCurrentSite(): string | undefined {
   return window.location.href;
 }
 
+function matchIndexedSectionField(field: FormField): FormField | null {
+  if (field.sectionIndex === undefined || !field.sectionType) {
+    return null;
+  }
+
+  const profileKey = resolveSectionProfileKey(field);
+  if (!profileKey) {
+    return null;
+  }
+
+  return {
+    ...field,
+    profileKey,
+    confidence: 1,
+    unknown: false,
+  };
+}
+
 function matchSingleField(
   field: FormField,
   fuse: Fuse<LabelIndexEntry>,
@@ -298,6 +317,11 @@ function matchSingleField(
   communityFields: CommunityFieldsMap,
   portal: PortalName,
 ): FormField {
+  const indexedMatch = matchIndexedSectionField(field);
+  if (indexedMatch) {
+    return applyConfidenceThreshold(indexedMatch);
+  }
+
   const normalizedLabel = normalizeLabel(field.label);
 
   const learnedHashMatch = resolveLearnedByHash(learnedFields, normalizedLabel);

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Skills Multi Select</title>
+  </head>
+  <body>
+    <section>
+      <h2>Skills</h2>
+      <input type="text" aria-label="Type to Add Skills" />
+      <div role="listbox">
+        <div role="option">TypeScript</div>
+        <div role="option">JavaScript</div>
+        <div role="option">React</div>
+      </div>
+      <div id="chips"></div>
+    </section>
+    <script>
+      const input = document.querySelector('input');
+      const chips = document.getElementById('chips');
+
+      document.querySelectorAll('[role="option"]').forEach((option) => {
+        option.addEventListener('click', () => {
+          const chip = document.createElement('span');
+          chip.className = 'chip';
+          chip.textContent = option.textContent.trim();
+          chips.appendChild(chip);
+          input.value = '';
+        });
+      });
+    </script>
+  </body>
+</html>

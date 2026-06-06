@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Repeatable Experience</title>
+  </head>
+  <body>
+    <section>
+      <h2>Work Experience</h2>
+      <button type="button" id="add-experience">Add</button>
+      <div id="experience-entries"></div>
+    </section>
+    <script>
+      document.getElementById('add-experience').addEventListener('click', () => {
+        const entries = document.getElementById('experience-entries');
+        const index = entries.children.length + 1;
+        const block = document.createElement('div');
+        block.innerHTML = `
+          <h3>Work Experience ${index}</h3>
+          <label>Job Title <input type="text" aria-label="Job Title" /></label>
+          <label>Company <input type="text" aria-label="Company" /></label>
+        `;
+        entries.appendChild(block);
+      });
+    </script>
+  </body>
+</html>

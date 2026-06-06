@@ -8,8 +8,9 @@ import {
   fillWorkdayDropdown,
   filterWorkdayFields,
   parseDateParts,
+  runWorkdayMatchAndFill,
 } from '@/content/ats/workday';
-import { DEFAULT_PROFILE, DEFAULT_SETTINGS } from '@/shared/storage';
+import { DEFAULT_PROFILE, DEFAULT_SETTINGS, flattenProfile } from '@/shared/storage';
 import type { FormField } from '@/shared/types';
 
 function mockVisibleLayout(): void {
@@ -160,6 +161,71 @@ describe('detectWorkdaySection and EEO filter', () => {
 
     expect(filtered).toHaveLength(1);
     expect(filtered[0]?.label).toBe('Email');
+  });
+});
+
+describe('runWorkdayMatchAndFill', () => {
+  beforeEach(() => {
+    mockVisibleLayout();
+    document.body.innerHTML = `
+      <div data-automation-id="applyFlowPage">
+        <h2>My Experience</h2>
+        <section>
+          <h3>Work Experience 1</h3>
+          <input data-automation-id="workExperience-1-jobTitle" aria-label="Job Title" />
+          <input data-automation-id="workExperience-1-company" aria-label="Company" />
+        </section>
+        <section>
+          <h3>Work Experience 2</h3>
+          <input data-automation-id="workExperience-2-jobTitle" aria-label="Job Title" />
+          <input data-automation-id="workExperience-2-company" aria-label="Company" />
+        </section>
+      </div>
+    `;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('fills all experience entries on the my experience step', () => {
+    const profile = {
+      ...DEFAULT_PROFILE,
+      experience: [
+        {
+          title: 'Senior Engineer',
+          company: 'Acme',
+          startDate: '2020-01',
+          endDate: '2023-01',
+          current: false,
+          description: 'Built APIs',
+        },
+        {
+          title: 'Engineer',
+          company: 'Beta',
+          startDate: '2018-01',
+          endDate: '2020-01',
+          current: false,
+          description: 'Shipped features',
+        },
+      ],
+    };
+
+    const result = runWorkdayMatchAndFill(
+      [],
+      profile,
+      DEFAULT_SETTINGS,
+      {},
+      {},
+      flattenProfile(profile),
+    );
+
+    expect(result.filled).toBeGreaterThanOrEqual(2);
+    expect(
+      (document.querySelector(
+        '[data-automation-id="workExperience-2-jobTitle"]',
+      ) as HTMLInputElement).value,
+    ).toBe('Engineer');
   });
 });
 

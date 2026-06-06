@@ -1,4 +1,10 @@
+import {
+  fillComboboxSync,
+  fillMultiSelectSearchSync,
+} from '@/content/controls/combobox';
+import { fillRadioControl } from '@/content/controls/radio';
 import { getProfileValue } from '@/content/matcher';
+import { resolveFieldValue } from '@/content/profileResolver';
 import { Logger } from '@/shared/logger';
 import {
   FILLED_FIELD_HIGHLIGHT_STYLE,
@@ -10,6 +16,7 @@ import type {
   FlatProfile,
   FormField,
   ProfileMatchKey,
+  UserProfile,
 } from '@/shared/types';
 import { normalizeLabel, simulateSelectChange, simulateUserInput } from '@/shared/utils';
 
@@ -32,9 +39,17 @@ function applyHighlight(element: HTMLElement, style: string): void {
 function getFieldValue(
   field: FormField,
   flatProfile: FlatProfile,
+  profile?: UserProfile | null,
 ): string {
   if (field.learnedLiteral) {
     return field.learnedLiteral;
+  }
+
+  if (profile && field.sectionIndex !== undefined && field.sectionType) {
+    const resolved = resolveFieldValue(profile, field);
+    if (resolved.trim()) {
+      return resolved;
+    }
   }
 
   if (!field.profileKey || field.profileKey === 'resumeFile') {
@@ -146,54 +161,6 @@ function normalizeChoiceValue(value: string): string {
   return normalized;
 }
 
-function getRadioLabel(radio: HTMLInputElement): string {
-  if (radio.id) {
-    const label = document.querySelector(`label[for="${CSS.escape(radio.id)}"]`);
-    if (label?.textContent) {
-      return normalizeLabel(label.textContent);
-    }
-  }
-
-  const parentLabel = radio.closest('label');
-  if (parentLabel?.textContent) {
-    return normalizeLabel(parentLabel.textContent);
-  }
-
-  return normalizeLabel(radio.value);
-}
-
-function fillRadioGroup(element: HTMLInputElement, value: string): boolean {
-  const groupName = element.name;
-  if (!groupName) {
-    return false;
-  }
-
-  const radios = Array.from(
-    document.querySelectorAll<HTMLInputElement>(
-      `input[type="radio"][name="${CSS.escape(groupName)}"]`,
-    ),
-  );
-
-  const normalizedValue = normalizeChoiceValue(value);
-
-  for (const radio of radios) {
-    const optionLabel = getRadioLabel(radio);
-    const optionValue = normalizeChoiceValue(radio.value);
-
-    if (
-      optionLabel === normalizedValue ||
-      optionValue === normalizedValue ||
-      optionLabel.includes(normalizedValue) ||
-      normalizedValue.includes(optionLabel)
-    ) {
-      radio.click();
-      return radio.checked;
-    }
-  }
-
-  return false;
-}
-
 function fillCheckbox(
   element: HTMLInputElement,
   field: FormField,
@@ -265,18 +232,17 @@ function fillElementWithValue(field: FormField, value: string): boolean {
       if (element instanceof HTMLSelectElement) {
         return fillSelect(element, value);
       }
-      break;
+      return fillComboboxSync(element, value);
     case 'radio':
-      if (element instanceof HTMLInputElement) {
-        return fillRadioGroup(element, value);
-      }
-      break;
+      return fillRadioControl(element, value);
     case 'checkbox':
       if (element instanceof HTMLInputElement) {
         const checkboxResult = fillCheckbox(element, field, value);
         return checkboxResult === 'filled';
       }
       break;
+    case 'multiselect':
+      return false;
     default:
       break;
   }
@@ -299,6 +265,7 @@ function fillMatchedField(
   field: FormField,
   flatProfile: FlatProfile,
   result: FillResult,
+  profile?: UserProfile | null,
 ): void {
   if (field.unknown || (!field.profileKey && !field.learnedLiteral)) {
     return;
@@ -310,7 +277,7 @@ function fillMatchedField(
     return;
   }
 
-  const value = getFieldValue(field, flatProfile);
+  const value = getFieldValue(field, flatProfile, profile);
   if (!value.trim()) {
     result.skipped += 1;
     logFiller('skipped empty value', field.label);
@@ -320,7 +287,19 @@ function fillMatchedField(
   const element = field.element;
   let success = false;
 
-  if (field.type === 'checkbox' && element instanceof HTMLInputElement) {
+  if (field.type === 'multiselect') {
+    const skills =
+      profile?.skills ??
+      value
+        .split(',')
+        .map((skill) => skill.trim())
+        .filter(Boolean);
+    const container =
+      element.closest('section, fieldset, [data-automation-id], form, div') ??
+      element;
+    const filledCount = fillMultiSelectSearchSync(container, skills);
+    success = filledCount > 0;
+  } else if (field.type === 'checkbox' && element instanceof HTMLInputElement) {
     const checkboxResult = fillCheckbox(element, field, value);
     if (checkboxResult === 'filled') {
       success = true;
@@ -352,6 +331,7 @@ export function fillFields(
   fields: FormField[],
   flatProfile: FlatProfile,
   settings: AppSettings,
+  profile?: UserProfile | null,
 ): FillResult {
   const result: FillResult = {
     filled: 0,
@@ -365,7 +345,7 @@ export function fillFields(
 
     for (const field of fields) {
       try {
-        fillMatchedField(field, flatProfile, result);
+        fillMatchedField(field, flatProfile, result, profile);
       } catch (error) {
         const message =
           error instanceof Error ? error.message : 'Unknown fill error';

@@ -91,6 +91,7 @@ export class FormObserver {
   private readonly onNewPage: (fields: FormField[]) => void;
   private readonly onFormComplete: () => void;
   private active = false;
+  private paused = false;
   private observer: MutationObserver | null = null;
   private debounceTimer: ReturnType<typeof setTimeout> | undefined;
   private previousFieldSignatures = new Set<string>();
@@ -162,6 +163,16 @@ export class FormObserver {
     this.checkForChanges();
   }
 
+  pause(): void {
+    this.paused = true;
+    logObserver('paused');
+  }
+
+  resume(): void {
+    this.paused = false;
+    logObserver('resumed');
+  }
+
   private patchHistory(): void {
     if (this.originalPushState) {
       return;
@@ -204,7 +215,7 @@ export class FormObserver {
   }
 
   private scheduleCheck(): void {
-    if (!this.active) {
+    if (!this.active || this.paused) {
       return;
     }
 
@@ -241,7 +252,7 @@ export class FormObserver {
   }
 
   private checkForChanges(): void {
-    if (!this.active || this.completionFired) {
+    if (!this.active || this.paused || this.completionFired) {
       return;
     }
 

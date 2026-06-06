@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>ARIA Radio Group</title>
+  </head>
+  <body>
+    <fieldset>
+      <legend>Willing to relocate?</legend>
+      <div role="radiogroup" aria-label="Willing to relocate">
+        <div role="radio" aria-checked="false" tabindex="0">Yes</div>
+        <div role="radio" aria-checked="false" tabindex="0">No</div>
+      </div>
+    </fieldset>
+    <script>
+      document.querySelectorAll('[role="radio"]').forEach((radio) => {
+        radio.addEventListener('click', () => {
+          document.querySelectorAll('[role="radio"]').forEach((option) => {
+            option.setAttribute('aria-checked', 'false');
+          });
+          radio.setAttribute('aria-checked', 'true');
+        });
+      });
+    </script>
+  </body>
+</html>

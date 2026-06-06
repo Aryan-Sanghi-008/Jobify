@@ -27,7 +27,11 @@ export type FormFieldType =
   | 'file'
   | 'radio'
   | 'checkbox'
-  | 'date';
+  | 'date'
+  | 'multiselect';
+
+/** Repeatable form section type detected by the scanner. */
+export type FormSectionType = 'experience' | 'education' | 'skills';
 
 /** Popup UI color scheme preference. */
 export type Theme = 'light' | 'dark' | 'system';
@@ -263,6 +267,10 @@ export interface FormField {
   unknown: boolean;
   /** User-saved literal answer from learned field mapping (non-profile key). */
   learnedLiteral?: string;
+  /** Repeatable section this field belongs to, if detected. */
+  sectionType?: FormSectionType;
+  /** Zero-based index within a repeatable section (e.g. Work Experience 2 → 1). */
+  sectionIndex?: number;
 }
 
 /** Summary returned after attempting to fill form fields on a page. */

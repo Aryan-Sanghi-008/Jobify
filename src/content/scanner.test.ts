@@ -79,6 +79,21 @@ describe('scanPageFieldsWithMeta', () => {
     expect(result.fields.length).toBeLessThanOrEqual(MAX_SCAN_FIELDS);
   });
 
+  it('adds composite labels and section context for repeatable blocks', () => {
+    document.body.innerHTML = `
+      <section>
+        <h3>Work Experience 1</h3>
+        <input type="text" aria-label="Job Title" />
+      </section>
+    `;
+
+    const result = scanPageFieldsWithMeta();
+
+    expect(result.fields[0]?.label).toBe('Work Experience 1 > Job Title');
+    expect(result.fields[0]?.sectionType).toBe('experience');
+    expect(result.fields[0]?.sectionIndex).toBe(0);
+  });
+
   it('scopes queries to an explicit container root', () => {
     const form = document.createElement('form');
     const outside = document.createElement('div');
