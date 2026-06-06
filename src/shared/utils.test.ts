@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   debounce,
   detectPortal,
+  exportApplicationsToCSV,
+  formatByteSize,
   formatCTC,
   generateId,
   hashString,
@@ -9,6 +11,7 @@ import {
   normalizeLabel,
   parseCTCInput,
 } from '@/shared/utils';
+import type { JobApplication } from '@/shared/types';
 
 describe('normalizeLabel', () => {
   it.each([
@@ -166,6 +169,40 @@ describe('generateId', () => {
     expect(id).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
     );
+  });
+});
+
+describe('exportApplicationsToCSV', () => {
+  it('exports spreadsheet columns with escaped values', () => {
+    const applications: JobApplication[] = [
+      {
+        id: 'app-1',
+        company: 'Acme, Inc.',
+        role: 'Engineer',
+        portal: 'linkedin',
+        url: 'https://example.com/jobs/1',
+        appliedAt: Date.parse('2024-06-15T12:00:00.000Z'),
+        status: 'applied',
+        notes: 'Followed up\nby email',
+      },
+    ];
+
+    const csv = exportApplicationsToCSV(applications);
+
+    expect(csv).toBe(
+      'Company,Role,Portal,Status,Applied Date,Notes\n' +
+        '"Acme, Inc.",Engineer,linkedin,applied,2024-06-15,"Followed up\nby email"',
+    );
+  });
+});
+
+describe('formatByteSize', () => {
+  it.each([
+    [512, '512 B'],
+    [2048, '2.0 KB'],
+    [5 * 1024 * 1024, '5.0 MB'],
+  ])('formats %i bytes as %s', (bytes, expected) => {
+    expect(formatByteSize(bytes)).toBe(expected);
   });
 });
 

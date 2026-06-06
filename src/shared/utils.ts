@@ -1,5 +1,5 @@
 import { PORTAL_URLS } from './constants';
-import type { PortalName } from './types';
+import type { JobApplication, PortalName } from './types';
 
 const JOB_TITLE_SELECTORS = [
   'h1',
@@ -354,6 +354,57 @@ export function parseCTCInput(raw: string): number {
   }
 
   return Math.round(parsed);
+}
+
+export function formatByteSize(bytes: number): string {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function escapeCsvField(value: string): string {
+  if (/[",\n\r]/.test(value)) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+
+  return value;
+}
+
+function formatApplicationDate(timestamp: number): string {
+  return new Date(timestamp).toISOString().slice(0, 10);
+}
+
+/**
+ * Serializes job applications as CSV with spreadsheet-friendly columns.
+ */
+export function exportApplicationsToCSV(applications: JobApplication[]): string {
+  const headers = [
+    'Company',
+    'Role',
+    'Portal',
+    'Status',
+    'Applied Date',
+    'Notes',
+  ];
+
+  const rows = applications.map((application) => [
+    application.company,
+    application.role,
+    application.portal,
+    application.status,
+    formatApplicationDate(application.appliedAt),
+    application.notes ?? '',
+  ]);
+
+  return [headers, ...rows]
+    .map((row) => row.map((cell) => escapeCsvField(String(cell))).join(','))
+    .join('\n');
 }
 
 /**

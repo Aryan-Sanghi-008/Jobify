@@ -9,6 +9,16 @@ import {
 import ConfirmDialog from '@/popup/components/ConfirmDialog';
 import Spinner from '@/popup/components/Spinner';
 import { useToast } from '@/popup/components/Toast';
+import {
+  applyBackupImport,
+  buildBackupPayload,
+  getBackupPreview,
+  hasExistingBackupData,
+  parseBackupFile,
+  type BackupPayload,
+  type BackupPreview,
+  type ImportMode,
+} from '@/shared/backup';
 import { VERSION } from '@/shared/constants';
 import { generateDiagnosticReport, Logger } from '@/shared/logger';
 import { checkStorageSize } from '@/shared/security';
@@ -17,19 +27,12 @@ import {
   getApplications,
   getCoverLetters,
   getLearnedFieldStats,
-  getProfile,
   getSettings,
   saveSettings,
 } from '@/shared/storage';
 import { getSelectorHealth } from '@/shared/selectorHealth';
-import type {
-  AppSettings,
-  CoverLetterTemplate,
-  JobApplication,
-  PortalName,
-  Theme,
-  UserProfile,
-} from '@/shared/types';
+import type { AppSettings, CoverLetterTemplate, PortalName, Theme } from '@/shared/types';
+import { exportApplicationsToCSV, formatByteSize } from '@/shared/utils';
 
 const INPUT_CLASS =
   'w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500';
@@ -39,94 +42,111 @@ const LABEL_CLASS = 'text-sm text-gray-800';
 const GITHUB_URL = 'https://github.com/your-org/job-autofill';
 const ISSUE_URL = 'https://github.com/your-org/job-autofill/issues';
 
-interface ImportPayload {
-  profile: UserProfile | null;
-  coverLetters: CoverLetterTemplate[];
-  applications: JobApplication[];
-  settings: AppSettings;
+interface ImportPreviewDialogProps {
+  preview: BackupPreview;
+  hasExistingData: boolean;
+  importMode: ImportMode;
+  isImporting: boolean;
+  onImportModeChange: (mode: ImportMode) => void;
+  onConfirm: () => void;
+  onCancel: () => void;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
-
-function isTheme(value: unknown): value is Theme {
-  return value === 'light' || value === 'dark' || value === 'system';
-}
-
-function isUserProfile(value: unknown): value is UserProfile {
-  if (!isRecord(value)) {
-    return false;
-  }
-
-  return isRecord(value.personal) && isRecord(value.professional);
-}
-
-function isCoverLetterTemplate(value: unknown): value is CoverLetterTemplate {
-  if (!isRecord(value)) {
-    return false;
-  }
-
+function ImportPreviewDialog({
+  preview,
+  hasExistingData,
+  importMode,
+  isImporting,
+  onImportModeChange,
+  onConfirm,
+  onCancel,
+}: ImportPreviewDialogProps) {
   return (
-    typeof value.id === 'string' &&
-    typeof value.name === 'string' &&
-    typeof value.body === 'string' &&
-    typeof value.createdAt === 'number' &&
-    typeof value.updatedAt === 'number'
-  );
-}
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="import-preview-title"
+        className="w-full max-w-sm rounded-lg bg-white p-4 shadow-xl"
+      >
+        <h2
+          id="import-preview-title"
+          className="text-sm font-semibold text-gray-900"
+        >
+          Import backup
+        </h2>
+        <p className="mt-2 text-sm text-gray-600">
+          This backup contains:
+        </p>
+        <ul className="mt-2 space-y-1 text-sm text-gray-700">
+          <li>{preview.applicationCount} application(s)</li>
+          <li>{preview.coverLetterCount} cover letter(s)</li>
+          <li>Profile: {preview.hasProfile ? 'Yes' : 'No'}</li>
+          <li>{preview.learnedFieldCount} learned field(s)</li>
+        </ul>
 
-function isJobApplication(value: unknown): value is JobApplication {
-  if (!isRecord(value)) {
-    return false;
-  }
+        {hasExistingData ? (
+          <fieldset className="mt-4">
+            <legend className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+              Existing data found
+            </legend>
+            <div className="mt-2 space-y-2">
+              <label className="flex items-start gap-2 text-sm text-gray-700">
+                <input
+                  type="radio"
+                  name="import-mode"
+                  value="merge"
+                  checked={importMode === 'merge'}
+                  onChange={() => onImportModeChange('merge')}
+                  className="mt-0.5 h-4 w-4 border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span>
+                  <span className="font-medium">Merge</span>
+                  <span className="mt-0.5 block text-xs text-gray-500">
+                    Combine lists and keep the newer profile.
+                  </span>
+                </span>
+              </label>
+              <label className="flex items-start gap-2 text-sm text-gray-700">
+                <input
+                  type="radio"
+                  name="import-mode"
+                  value="replace"
+                  checked={importMode === 'replace'}
+                  onChange={() => onImportModeChange('replace')}
+                  className="mt-0.5 h-4 w-4 border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span>
+                  <span className="font-medium">Replace</span>
+                  <span className="mt-0.5 block text-xs text-gray-500">
+                    Overwrite all local data with this backup.
+                  </span>
+                </span>
+              </label>
+            </div>
+          </fieldset>
+        ) : null}
 
-  return (
-    typeof value.id === 'string' &&
-    typeof value.company === 'string' &&
-    typeof value.role === 'string' &&
-    typeof value.portal === 'string' &&
-    typeof value.url === 'string' &&
-    typeof value.appliedAt === 'number' &&
-    typeof value.status === 'string'
-  );
-}
-
-function isAppSettings(value: unknown): value is AppSettings {
-  if (!isRecord(value)) {
-    return false;
-  }
-
-  return (
-    typeof value.autoFillOnLoad === 'boolean' &&
-    typeof value.pauseBeforeSubmit === 'boolean' &&
-    typeof value.highlightUnknownFields === 'boolean' &&
-    (value.defaultCoverLetterId === null || typeof value.defaultCoverLetterId === 'string') &&
-    isTheme(value.theme) &&
-    (value.debugMode === undefined || typeof value.debugMode === 'boolean') &&
-    (value.onboardingComplete === undefined ||
-      typeof value.onboardingComplete === 'boolean')
-  );
-}
-
-function validateImportPayload(data: unknown): data is ImportPayload {
-  if (!isRecord(data)) {
-    return false;
-  }
-
-  const profileValid = data.profile === null || isUserProfile(data.profile);
-  const coverLettersValid =
-    Array.isArray(data.coverLetters) &&
-    data.coverLetters.every((item) => isCoverLetterTemplate(item));
-  const applicationsValid =
-    Array.isArray(data.applications) &&
-    data.applications.every((item) => isJobApplication(item));
-
-  return (
-    profileValid &&
-    coverLettersValid &&
-    applicationsValid &&
-    isAppSettings(data.settings)
+        <div className="mt-4 flex gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={isImporting}
+            className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-70"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={isImporting}
+            className="flex-1 rounded-md bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-70"
+          >
+            {isImporting ? 'Importing…' : 'Confirm import'}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -190,6 +210,10 @@ export default function Settings() {
   const [importError, setImportError] = useState<string | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [pendingImport, setPendingImport] = useState<BackupPayload | null>(null);
+  const [importPreview, setImportPreview] = useState<BackupPreview | null>(null);
+  const [importHasExistingData, setImportHasExistingData] = useState(false);
+  const [importMode, setImportMode] = useState<ImportMode>('merge');
   const [learnedStats, setLearnedStats] = useState<{
     totalLearned: number;
   } | null>(null);
@@ -237,23 +261,9 @@ export default function Settings() {
   }, [showToast]);
 
   const handleExport = async () => {
-    const [profile, letters, applications, currentSettings] = await Promise.all([
-      getProfile(),
-      getCoverLetters(),
-      getApplications(),
-      getSettings(),
-    ]);
-
-    const payload: ImportPayload = {
-      profile,
-      coverLetters: letters,
-      applications,
-      settings: currentSettings,
-    };
-
-    const blob = new Blob([JSON.stringify(payload, null, 2)], {
-      type: 'application/json',
-    });
+    const payload = await buildBackupPayload();
+    const json = JSON.stringify(payload, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const date = new Date().toISOString().slice(0, 10);
     const anchor = document.createElement('a');
@@ -261,7 +271,24 @@ export default function Settings() {
     anchor.download = `job-autofill-backup-${date}.json`;
     anchor.click();
     URL.revokeObjectURL(url);
-    showToast('Data exported', 'success');
+    showToast(`Exported ${formatByteSize(blob.size)}`, 'success');
+  };
+
+  const handleExportApplicationsCsv = async () => {
+    const applications = await getApplications();
+    const csv = exportApplicationsToCSV(applications);
+    const date = new Date().toISOString().slice(0, 10);
+    const dataUri = `data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`;
+    const anchor = document.createElement('a');
+    anchor.href = dataUri;
+    anchor.download = `job-applications-${date}.csv`;
+    anchor.click();
+    showToast(
+      applications.length === 0
+        ? 'Exported empty CSV'
+        : `Exported ${applications.length} application(s)`,
+      'success',
+    );
   };
 
   const handleImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -272,29 +299,55 @@ export default function Settings() {
       return;
     }
 
-    setIsImporting(true);
     setImportError(null);
 
     try {
       const text = await file.text();
       const parsed: unknown = JSON.parse(text);
+      const payload = parseBackupFile(parsed);
 
-      if (!validateImportPayload(parsed)) {
-        setImportError('Invalid backup file structure.');
-        setIsImporting(false);
+      if (!payload) {
+        setImportError('Invalid backup file. Check version and required fields.');
         return;
       }
 
-      await chrome.storage.local.set({
-        profile: parsed.profile,
-        coverLetters: parsed.coverLetters,
-        applications: parsed.applications,
-        settings: parsed.settings,
-      });
+      const [preview, hasExistingData] = await Promise.all([
+        Promise.resolve(getBackupPreview(payload)),
+        hasExistingBackupData(),
+      ]);
 
-      window.location.reload();
+      setPendingImport(payload);
+      setImportPreview(preview);
+      setImportHasExistingData(hasExistingData);
+      setImportMode(hasExistingData ? 'merge' : 'replace');
     } catch {
       setImportError('Could not read or parse the backup file.');
+    }
+  };
+
+  const handleCancelImport = () => {
+    setPendingImport(null);
+    setImportPreview(null);
+    setImportHasExistingData(false);
+    setImportMode('merge');
+  };
+
+  const handleConfirmImport = async () => {
+    if (!pendingImport) {
+      return;
+    }
+
+    setIsImporting(true);
+    setImportError(null);
+
+    try {
+      await applyBackupImport(
+        pendingImport,
+        importHasExistingData ? importMode : 'replace',
+      );
+      window.location.reload();
+    } catch {
+      setImportError('Import failed. Try again or use a different backup file.');
       setIsImporting(false);
     }
   };
@@ -460,6 +513,14 @@ export default function Settings() {
             Export my data
           </button>
 
+          <button
+            type="button"
+            onClick={() => void handleExportApplicationsCsv()}
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            Export applications as CSV
+          </button>
+
           <input
             ref={importInputRef}
             type="file"
@@ -473,7 +534,7 @@ export default function Settings() {
             disabled={isImporting}
             className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-70"
           >
-            {isImporting ? 'Importing…' : 'Import data'}
+            Import data
           </button>
           {importError ? (
             <p className="text-xs text-red-600">{importError}</p>
@@ -526,6 +587,18 @@ export default function Settings() {
           confirmLabel="Yes, clear everything"
           onConfirm={() => void handleClearData()}
           onCancel={() => setShowClearConfirm(false)}
+        />
+      ) : null}
+
+      {pendingImport && importPreview ? (
+        <ImportPreviewDialog
+          preview={importPreview}
+          hasExistingData={importHasExistingData}
+          importMode={importMode}
+          isImporting={isImporting}
+          onImportModeChange={setImportMode}
+          onConfirm={() => void handleConfirmImport()}
+          onCancel={handleCancelImport}
         />
       ) : null}
     </div>
