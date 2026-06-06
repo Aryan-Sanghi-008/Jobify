@@ -43,8 +43,7 @@ type UnknownFieldDraft = {
   saveToProfile: boolean;
 };
 
-const INPUT_CLASS =
-  "w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500";
+const INPUT_CLASS = "popup-input";
 
 function isProfileComplete(profile: UserProfile | null): boolean {
   return profile !== null && profile.personal.email.trim() !== "";
@@ -92,7 +91,7 @@ function getAutofillButtonState({
       disabled: true,
       className: "bg-gray-400 hover:bg-gray-400",
       label: "Auto-fill this page",
-      tooltip: "Navigate to a job listing first",
+      tooltip: "Open a job application form to auto-fill",
       showSpinner: false,
     };
   }
@@ -544,7 +543,7 @@ export default function App() {
 
   if (isInitialLoading) {
     return (
-      <div className="flex h-[600px] max-h-[600px] w-[380px] min-w-[360px] items-center justify-center overflow-hidden bg-white">
+      <div className="popup-panel flex h-[600px] max-h-[600px] w-[380px] min-w-[360px] items-center justify-center overflow-hidden">
         <Spinner size="md" className="text-blue-600" />
       </div>
     );
@@ -564,17 +563,17 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-[600px] max-h-[600px] w-[380px] min-w-[360px] flex-col overflow-hidden bg-white text-gray-900">
-      <header className="border-b border-gray-200 px-4 py-3">
+    <div className="popup-panel flex h-[600px] max-h-[600px] w-[380px] min-w-[360px] flex-col overflow-hidden">
+      <header className="border-b border-gray-200 px-4 py-3 dark:border-gray-800">
         <div className="flex items-center justify-between gap-3">
-          <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+          <p className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
             Jobify
           </p>
           <span
             className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
               profileComplete
-                ? "bg-green-100 text-green-800"
-                : "bg-amber-100 text-amber-800"
+                ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300"
+                : "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
             }`}
           >
             {profileComplete ? "Profile complete" : "Setup needed"}
@@ -582,7 +581,7 @@ export default function App() {
         </div>
       </header>
 
-      <section className="max-h-[240px] shrink-0 overflow-y-auto border-b border-gray-200 px-4 py-3">
+      <section className="max-h-[240px] shrink-0 overflow-y-auto border-b border-gray-200 px-4 py-3 dark:border-gray-800">
           <button
             ref={autofillButtonRef}
             type="button"
@@ -600,10 +599,10 @@ export default function App() {
               <span>{autofillButton.label}</span>
             )}
           </button>
-          <p className="mt-1 text-center text-[10px] text-gray-400">
+          <p className="mt-1 text-center text-[10px] text-gray-400 dark:text-gray-500">
             Or press Alt+Shift+F
           </p>
-          <p className="mt-1 text-center text-[10px] text-gray-400">
+          <p className="mt-1 text-center text-[10px] text-gray-400 dark:text-gray-500">
             Shortcuts can be customized at chrome://extensions/shortcuts
           </p>
 
@@ -611,8 +610,8 @@ export default function App() {
             <p
               className={`mt-2 text-center text-xs ${
                 resultMessage.type === "success"
-                  ? "text-gray-600"
-                  : "text-red-600"
+                  ? "text-gray-600 dark:text-gray-300"
+                  : "text-red-600 dark:text-red-400"
               }`}
             >
               {resultMessage.message}
@@ -621,7 +620,7 @@ export default function App() {
 
           {isJobPage && hasUnknownFields ? (
             <div className="mt-3 space-y-2">
-              <p className="text-xs font-semibold text-gray-900">
+              <p className="text-xs font-semibold text-gray-900 dark:text-gray-100">
                 {unknownLabels.length} fields need your input
               </p>
               <div className="space-y-2">
@@ -634,9 +633,9 @@ export default function App() {
                   return (
                     <div
                       key={label}
-                      className="space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-2.5"
+                      className="space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-2.5 dark:border-gray-700 dark:bg-gray-900"
                     >
-                      <p className="text-xs font-medium text-gray-800">
+                      <p className="text-xs font-medium text-gray-800 dark:text-gray-200">
                         {label}
                       </p>
                       <input
@@ -661,7 +660,7 @@ export default function App() {
                           void fillSingleField(label, draft.value.trim())
                         }
                         disabled={isFilling || !draft.value.trim()}
-                        className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-xs font-medium text-gray-700 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                        className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-xs font-medium text-gray-700 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
                       >
                         Fill this field
                       </button>
@@ -673,7 +672,7 @@ export default function App() {
                 type="button"
                 onClick={() => void fillAllUnknownFields(filledEntries)}
                 disabled={isFilling || filledEntries.length === 0}
-                className="w-full rounded-lg bg-gray-900 px-3 py-2 text-xs font-semibold text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
+                className="w-full rounded-lg bg-gray-900 px-3 py-2 text-xs font-semibold text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white"
               >
                 Fill all above + continue
               </button>
@@ -685,7 +684,7 @@ export default function App() {
               type="button"
               onClick={() => void continueAutofill()}
               disabled={isFilling}
-              className="mt-3 w-full rounded-lg border border-blue-300 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
+              className="mt-3 w-full rounded-lg border border-blue-300 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-blue-700 dark:text-blue-300 dark:hover:bg-blue-950"
             >
               Continue
             </button>
@@ -708,7 +707,7 @@ export default function App() {
         </Suspense>
       </main>
 
-      <nav className="border-t border-gray-200 bg-gray-50">
+      <nav className="border-t border-gray-200 bg-gray-50 dark:border-gray-800 dark:bg-gray-900">
         <ul
           className={`grid ${visibleTabs.length === 6 ? "grid-cols-6" : "grid-cols-5"}`}
         >
@@ -724,8 +723,8 @@ export default function App() {
                   aria-current={isActive ? "page" : undefined}
                   className={`relative flex w-full flex-col items-center gap-1 px-2 py-2.5 text-[10px] font-medium transition-colors ${
                     isActive
-                      ? "text-blue-600"
-                      : "text-gray-500 hover:text-gray-700"
+                      ? "text-blue-600 dark:text-blue-400"
+                      : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
                   }`}
                 >
                   {isActive ? (

@@ -26,6 +26,7 @@ import {
   exportContributionEntries,
   type CommunityContributionEntry,
 } from '@/shared/communityFields';
+import { applyThemeClass } from '@/popup/utils/theme';
 import { GITHUB_URL, ISSUE_URL, VERSION } from '@/shared/constants';
 import { generateDiagnosticReport, Logger } from '@/shared/logger';
 import { checkStorageSize, validateApiKey } from '@/shared/security';
@@ -54,11 +55,10 @@ import type {
 } from '@/shared/types';
 import { exportApplicationsToCSV, formatByteSize } from '@/shared/utils';
 
-const INPUT_CLASS =
-  'w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500';
+const INPUT_CLASS = 'popup-input';
 const SECTION_TITLE_CLASS =
-  'text-xs font-semibold uppercase tracking-wide text-gray-500';
-const LABEL_CLASS = 'text-sm text-gray-800';
+  'text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400';
+const LABEL_CLASS = 'text-sm text-gray-800 dark:text-gray-200';
 
 interface ImportPreviewDialogProps {
   preview: BackupPreview;
@@ -294,6 +294,10 @@ export default function Settings() {
 
   const persistSettings = useCallback(
     async (updates: Partial<AppSettings>) => {
+      if (updates.theme) {
+        applyThemeClass(updates.theme);
+      }
+
       await saveSettings(updates);
       setSettings((current) => (current ? { ...current, ...updates } : current));
       showToast('Saved', 'success');
@@ -1008,7 +1012,10 @@ export default function Settings() {
           <legend className={`${LABEL_CLASS} mb-2`}>Theme</legend>
           <div className="space-y-2">
             {(['light', 'dark', 'system'] as Theme[]).map((theme) => (
-              <label key={theme} className="flex items-center gap-2 text-sm text-gray-700">
+              <label
+                key={theme}
+                className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200"
+              >
                 <input
                   type="radio"
                   name="theme"

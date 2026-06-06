@@ -11,6 +11,7 @@ import type {
   ProfileIncompleteResponse,
   TriggerAutofillResponse,
 } from '@/shared/types';
+import { isAutofillablePage } from '@/shared/pageInfo';
 import { saveLastFillResult } from '@/shared/storage';
 import { hashString, normalizeLabel } from '@/shared/utils';
 
@@ -21,6 +22,8 @@ export interface UnknownFieldEntry {
 }
 
 const MESSAGE_TIMEOUT_MS = 5000;
+const PAGE_INFO_RETRY_DELAY_MS = 400;
+const PAGE_INFO_MAX_ATTEMPTS = 4;
 const ACTIVE_FORM_STATES = new Set<FormStatePayload['state']>([
   'SCANNING',
   'FILLING',
@@ -108,6 +111,26 @@ async function injectContentScript(tabId: number): Promise<void> {
   });
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+async function fetchPageInfo(): Promise<PageInfoResponse | null> {
+  for (let attempt = 0; attempt < PAGE_INFO_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      return await sendToActiveTab<PageInfoResponse>({ type: 'GET_PAGE_INFO' });
+    } catch {
+      if (attempt < PAGE_INFO_MAX_ATTEMPTS - 1) {
+        await delay(PAGE_INFO_RETRY_DELAY_MS);
+      }
+    }
+  }
+
+  return null;
+}
+
 async function sendToActiveTab<T>(message: unknown): Promise<T> {
   const tabId = await getActiveTabId();
 
@@ -152,7 +175,7 @@ export function useExtension(): UseExtensionResult {
   const [isStarting, setIsStarting] = useState(false);
   const [lastResult, setLastResult] = useState<PopupFillResult | null>(null);
 
-  const isJobPage = pageInfo !== null && pageInfo.portal !== 'generic';
+  const isJobPage = pageInfo !== null && isAutofillablePage(pageInfo);
   const isFilling =
     isStarting ||
     (formState !== null && ACTIVE_FORM_STATES.has(formState.state));
@@ -163,9 +186,7 @@ export function useExtension(): UseExtensionResult {
   }, []);
 
   useEffect(() => {
-    void sendToActiveTab<PageInfoResponse>({ type: 'GET_PAGE_INFO' })
-      .then((info) => setPageInfo(info))
-      .catch(() => setPageInfo(null));
+    void fetchPageInfo().then((info) => setPageInfo(info));
   }, []);
 
   useEffect(() => {

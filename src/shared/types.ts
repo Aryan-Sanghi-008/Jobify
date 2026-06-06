@@ -598,6 +598,10 @@ export interface PageInfoResponse {
   company: string;
   jobTitle: string;
   portal: PortalName;
+  /** True when the page has at least one scannable application form field. */
+  hasApplicationForm: boolean;
+  /** Number of scannable form fields detected on the page. */
+  formFieldCount: number;
 }
 
 /** Result of a cover letter fill attempt. */

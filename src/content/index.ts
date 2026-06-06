@@ -1,5 +1,6 @@
 import { AutoLogger } from '@/content/autoLogger';
 import type { FormStateMachine } from '@/content/formStateMachine';
+import { scanPageFieldsWithMeta } from '@/content/scanner';
 import { Logger } from '@/shared/logger';
 import {
   assertRuntimeValid,
@@ -406,11 +407,15 @@ interface AutofillModules {
 
   async function handleGetPageInfo(): Promise<PageInfoResponse> {
     const pageContext = await getPageContext();
+    const scanResult = scanPageFieldsWithMeta();
+    const formFieldCount = scanResult.fields.length;
 
     return {
       company: pageContext.company,
       jobTitle: pageContext.jobTitle,
       portal: detectPortal(window.location.href),
+      hasApplicationForm: formFieldCount > 0,
+      formFieldCount,
     };
   }
 

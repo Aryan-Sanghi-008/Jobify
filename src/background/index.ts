@@ -188,7 +188,7 @@ async function showApplicationLoggedNotification(
   try {
     await chrome.notifications.create(`app-logged-${Date.now()}`, {
       type: 'basic',
-      iconUrl: chrome.runtime.getURL('icons/icon128.svg'),
+      iconUrl: chrome.runtime.getURL('icons/icon128.png'),
       title: 'Application logged!',
       message: `${company} - ${role}`,
     });
@@ -479,7 +479,7 @@ async function showShortcutNotification(
   try {
     await chrome.notifications.create(`shortcut-${Date.now()}`, {
       type: 'basic',
-      iconUrl: chrome.runtime.getURL('icons/icon128.svg'),
+      iconUrl: chrome.runtime.getURL('icons/icon128.png'),
       title,
       message,
     });
@@ -686,6 +686,8 @@ async function openManualLogPopup(tab?: chrome.tabs.Tab): Promise<void> {
       company: '',
       jobTitle: '',
       portal: detectPortal(tab.url),
+      hasApplicationForm: false,
+      formFieldCount: 0,
     };
 
     try {
