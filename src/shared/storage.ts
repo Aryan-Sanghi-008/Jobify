@@ -3,9 +3,11 @@ import type {
   CoverLetterTemplate,
   FlatProfile,
   JobApplication,
+  LearnedField,
   StorageSchema,
   UserProfile,
 } from './types';
+import { hashString } from './utils';
 
 export const DEFAULT_SETTINGS: AppSettings = {
   autoFillOnLoad: false,
@@ -226,10 +228,106 @@ export async function updateApplicationNotes(
   }
 }
 
-export async function getLearnedFields(): Promise<Record<string, string>> {
+function isLearnedField(value: unknown): value is LearnedField {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.value === 'string' &&
+    typeof record.normalizedLabel === 'string' &&
+    typeof record.learnedAt === 'number' &&
+    typeof record.timesUsed === 'number' &&
+    Array.isArray(record.sites) &&
+    record.sites.every((site) => typeof site === 'string')
+  );
+}
+
+export function normalizeLearnedFieldsStorage(
+  raw: Record<string, unknown> | undefined,
+): Record<string, LearnedField> {
+  if (!raw) {
+    return {};
+  }
+
+  const normalized: Record<string, LearnedField> = {};
+
+  for (const [key, value] of Object.entries(raw)) {
+    if (typeof value === 'string') {
+      normalized[key] = {
+        value,
+        normalizedLabel: '',
+        learnedAt: 0,
+        timesUsed: 0,
+        sites: [],
+      };
+      continue;
+    }
+
+    if (isLearnedField(value)) {
+      normalized[key] = value;
+    }
+  }
+
+  return normalized;
+}
+
+export function getUniqueLearnedEntries(
+  map: Record<string, LearnedField>,
+): LearnedField[] {
+  const seen = new Set<string>();
+  const unique: LearnedField[] = [];
+
+  for (const [key, entry] of Object.entries(map)) {
+    const dedupeKey = entry.normalizedLabel
+      ? hashString(entry.normalizedLabel)
+      : key;
+
+    if (seen.has(dedupeKey)) {
+      continue;
+    }
+
+    seen.add(dedupeKey);
+    unique.push(entry);
+  }
+
+  return unique;
+}
+
+function parseSiteHostname(site?: string): string | undefined {
+  if (!site?.trim()) {
+    return undefined;
+  }
+
+  try {
+    return new URL(site).hostname;
+  } catch {
+    return site.trim();
+  }
+}
+
+function writeLearnedEntry(
+  map: Record<string, LearnedField>,
+  labelHash: string,
+  normalizedLabel: string,
+  entry: LearnedField,
+): Record<string, LearnedField> {
+  const next = { ...map, [labelHash]: entry };
+
+  if (normalizedLabel) {
+    next[normalizedLabel] = entry;
+  }
+
+  return next;
+}
+
+export async function getLearnedFields(): Promise<Record<string, LearnedField>> {
   try {
     const learnedFields = await storageGet('learnedFields');
-    return learnedFields ?? {};
+    return normalizeLearnedFieldsStorage(
+      learnedFields as Record<string, unknown> | undefined,
+    );
   } catch (error) {
     logStorageError('getLearnedFields', error);
     throw error;
@@ -238,17 +336,128 @@ export async function getLearnedFields(): Promise<Record<string, string>> {
 
 export async function learnField(
   labelHash: string,
-  profileKey: string,
+  value: string,
+  normalizedLabel: string,
+  site?: string,
 ): Promise<void> {
   try {
     const existing = await getLearnedFields();
+    const hostname = parseSiteHostname(site);
+    const previous =
+      existing[labelHash] ?? (normalizedLabel ? existing[normalizedLabel] : undefined);
+
+    const entry: LearnedField = {
+      value,
+      normalizedLabel,
+      learnedAt: previous?.learnedAt ?? Date.now(),
+      timesUsed: previous?.timesUsed ?? 0,
+      sites: [...(previous?.sites ?? [])],
+    };
+
+    if (hostname && !entry.sites.includes(hostname)) {
+      entry.sites.push(hostname);
+    }
+
     await storageSet({
-      learnedFields: { ...existing, [labelHash]: profileKey },
+      learnedFields: writeLearnedEntry(existing, labelHash, normalizedLabel, entry),
     });
   } catch (error) {
     logStorageError('learnField', error);
     throw error;
   }
+}
+
+export async function recordLearnedFieldUse(
+  labelHash: string,
+  site?: string,
+): Promise<void> {
+  try {
+    const existing = await getLearnedFields();
+    const entry = existing[labelHash];
+
+    if (!entry) {
+      return;
+    }
+
+    const hostname = parseSiteHostname(site);
+    const updated: LearnedField = {
+      ...entry,
+      timesUsed: entry.timesUsed + 1,
+      sites: [...entry.sites],
+    };
+
+    if (hostname && !updated.sites.includes(hostname)) {
+      updated.sites.push(hostname);
+    }
+
+    await storageSet({
+      learnedFields: writeLearnedEntry(
+        existing,
+        labelHash,
+        entry.normalizedLabel,
+        updated,
+      ),
+    });
+  } catch (error) {
+    logStorageError('recordLearnedFieldUse', error);
+  }
+}
+
+export async function getLearnedFieldStats(): Promise<{
+  totalLearned: number;
+  mostUsed: { label: string; count: number }[];
+}> {
+  const map = await getLearnedFields();
+  const unique = getUniqueLearnedEntries(map);
+
+  const mostUsed = unique
+    .map((entry) => ({
+      label: entry.normalizedLabel || entry.value,
+      count: entry.timesUsed,
+    }))
+    .sort((left, right) => right.count - left.count)
+    .slice(0, 5);
+
+  return {
+    totalLearned: unique.length,
+    mostUsed,
+  };
+}
+
+export async function exportLearnedFields(): Promise<Record<string, LearnedField>> {
+  const map = await getLearnedFields();
+  const exported: Record<string, LearnedField> = {};
+
+  for (const entry of getUniqueLearnedEntries(map)) {
+    const key = entry.normalizedLabel
+      ? hashString(entry.normalizedLabel)
+      : Object.keys(map).find((mapKey) => map[mapKey] === entry) ?? hashString(entry.value);
+
+    exported[key] = entry;
+  }
+
+  return exported;
+}
+
+export async function importLearnedFields(
+  data: Record<string, LearnedField>,
+): Promise<void> {
+  const existing = await getLearnedFields();
+  let merged = { ...existing };
+
+  for (const entry of Object.values(data)) {
+    if (!isLearnedField(entry)) {
+      continue;
+    }
+
+    const labelHash = entry.normalizedLabel
+      ? hashString(entry.normalizedLabel)
+      : Object.keys(data).find((key) => data[key] === entry) ?? hashString(entry.value);
+
+    merged = writeLearnedEntry(merged, labelHash, entry.normalizedLabel, entry);
+  }
+
+  await storageSet({ learnedFields: merged });
 }
 
 export async function getSettings(): Promise<AppSettings> {

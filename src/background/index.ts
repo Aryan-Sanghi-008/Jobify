@@ -93,7 +93,10 @@ function validateMessage(message: unknown): message is ExtensionMessage {
     case 'LEARN_FIELD':
       return (
         typeof message.labelHash === 'string' &&
-        typeof message.profileKey === 'string'
+        typeof message.profileKey === 'string' &&
+        (message.normalizedLabel === undefined ||
+          typeof message.normalizedLabel === 'string') &&
+        (message.site === undefined || typeof message.site === 'string')
       );
     case 'PORTAL_DETECTED':
       return typeof message.portal === 'string';
@@ -151,7 +154,12 @@ async function handleMessage(
       await logApplication(message.payload);
       return { success: true };
     case 'LEARN_FIELD':
-      await learnField(message.labelHash, message.profileKey);
+      await learnField(
+        message.labelHash,
+        message.profileKey,
+        message.normalizedLabel ?? '',
+        message.site,
+      );
       return { success: true };
     case 'GET_SETTINGS':
       return getSettings();

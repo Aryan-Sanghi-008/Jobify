@@ -1,9 +1,10 @@
 import Fuse from 'fuse.js';
 import { FIELD_LABEL_MAP } from '@/shared/constants';
-import { flattenProfile } from '@/shared/storage';
+import { flattenProfile, recordLearnedFieldUse } from '@/shared/storage';
 import type {
   FlatProfile,
   FormField,
+  LearnedField,
   ProfileMatchKey,
   UserProfile,
 } from '@/shared/types';
@@ -14,8 +15,15 @@ interface LabelIndexEntry {
   label: string;
 }
 
+interface LearnedFuseEntry {
+  label: string;
+  hash: string;
+  value: string;
+}
+
 const FUSE_THRESHOLD = 0.3;
-const MIN_CONTAINED_LABEL_LENGTH = 5;
+const LEARNED_FUSE_THRESHOLD = 0.35;
+const CONFIDENCE_THRESHOLD = 0.5;
 
 const FLAT_PROFILE_KEYS = Object.keys(FIELD_LABEL_MAP) as Array<keyof FlatProfile>;
 
@@ -44,6 +52,23 @@ function buildFuseIndex(): Fuse<LabelIndexEntry> {
   });
 }
 
+function buildLearnedFuseIndex(entries: LearnedField[]): Fuse<LearnedFuseEntry> {
+  const fuseEntries: LearnedFuseEntry[] = entries
+    .filter((entry) => entry.normalizedLabel.trim() !== '')
+    .map((entry) => ({
+      label: entry.normalizedLabel,
+      hash: hashString(entry.normalizedLabel),
+      value: entry.value,
+    }));
+
+  return new Fuse(fuseEntries, {
+    keys: ['label'],
+    threshold: LEARNED_FUSE_THRESHOLD,
+    includeScore: true,
+    ignoreLocation: true,
+  });
+}
+
 function findExactLabelMatch(
   normalizedLabel: string,
 ): keyof FlatProfile | undefined {
@@ -60,42 +85,54 @@ function findExactLabelMatch(
   return undefined;
 }
 
-function findContainedLabelMatch(
+function resolveLearnedByHash(
+  learnedFields: Record<string, LearnedField>,
   normalizedLabel: string,
-): keyof FlatProfile | undefined {
-  let bestKey: keyof FlatProfile | undefined;
-  let bestLength = 0;
-
-  for (const key of FLAT_PROFILE_KEYS) {
-    for (const label of FIELD_LABEL_MAP[key]) {
-      const normalizedMapLabel = normalizeLabel(label);
-
-      if (
-        normalizedMapLabel.length >= MIN_CONTAINED_LABEL_LENGTH &&
-        normalizedMapLabel.length > bestLength &&
-        normalizedLabel.includes(normalizedMapLabel)
-      ) {
-        bestKey = key;
-        bestLength = normalizedMapLabel.length;
-      }
-    }
-  }
-
-  return bestKey;
-}
-
-function resolveLearnedKey(
-  learnedFields: Record<string, string>,
-  normalizedLabel: string,
-): ProfileMatchKey | undefined {
+): { value: string; hash: string } | undefined {
   const labelHash = hashString(normalizedLabel);
-  const learnedKey = learnedFields[labelHash];
+  const entry = learnedFields[labelHash];
 
-  if (!learnedKey || !isProfileMatchKey(learnedKey)) {
+  if (!entry) {
     return undefined;
   }
 
-  return learnedKey;
+  return { value: entry.value, hash: labelHash };
+}
+
+function resolveLearnedByFuzzy(
+  fuse: Fuse<LearnedFuseEntry>,
+  normalizedLabel: string,
+): { value: string; hash: string; score: number } | undefined {
+  const results = fuse.search(normalizedLabel);
+  const best = results[0];
+
+  if (!best || (best.score ?? 1) > LEARNED_FUSE_THRESHOLD) {
+    return undefined;
+  }
+
+  return {
+    value: best.item.value,
+    hash: best.item.hash,
+    score: best.score ?? 1,
+  };
+}
+
+function applyLearnedValue(field: FormField, value: string): FormField {
+  if (isProfileMatchKey(value)) {
+    return {
+      ...field,
+      profileKey: value,
+      confidence: 1,
+      unknown: false,
+    };
+  }
+
+  return {
+    ...field,
+    learnedLiteral: value,
+    confidence: 1,
+    unknown: false,
+  };
 }
 
 function applySpecialCase(
@@ -170,74 +207,80 @@ function matchWithFuse(
   };
 }
 
-function resolveLearnedLiteral(
-  learnedFields: Record<string, string>,
-  normalizedLabel: string,
-): string | undefined {
-  const labelHash = hashString(normalizedLabel);
-  const learned = learnedFields[labelHash];
+export function applyConfidenceThreshold(field: FormField): FormField {
+  if (field.confidence >= CONFIDENCE_THRESHOLD) {
+    return field;
+  }
 
-  if (!learned || isProfileMatchKey(learned)) {
+  return {
+    ...field,
+    profileKey: undefined,
+    learnedLiteral: undefined,
+    confidence: 0,
+    unknown: true,
+  };
+}
+
+function getCurrentSite(): string | undefined {
+  if (typeof window === 'undefined') {
     return undefined;
   }
 
-  return learned;
+  return window.location.href;
 }
 
 function matchSingleField(
   field: FormField,
   fuse: Fuse<LabelIndexEntry>,
-  learnedFields: Record<string, string>,
+  learnedFuse: Fuse<LearnedFuseEntry>,
+  learnedFields: Record<string, LearnedField>,
 ): FormField {
   const normalizedLabel = normalizeLabel(field.label);
-  const learnedKey = resolveLearnedKey(learnedFields, normalizedLabel);
 
-  if (learnedKey) {
-    return {
-      ...field,
-      profileKey: learnedKey,
-      confidence: 1,
-      unknown: false,
-    };
-  }
-
-  const learnedLiteral = resolveLearnedLiteral(learnedFields, normalizedLabel);
-
-  if (learnedLiteral) {
-    return {
-      ...field,
-      learnedLiteral,
-      confidence: 1,
-      unknown: false,
-    };
+  const learnedHashMatch = resolveLearnedByHash(learnedFields, normalizedLabel);
+  if (learnedHashMatch) {
+    void recordLearnedFieldUse(learnedHashMatch.hash, getCurrentSite());
+    return applyConfidenceThreshold(
+      applyLearnedValue(field, learnedHashMatch.value),
+    );
   }
 
   const specialCase = applySpecialCase(field, normalizedLabel);
   if (specialCase) {
-    return specialCase;
+    return applyConfidenceThreshold(specialCase);
   }
 
   const exactMatch = findExactLabelMatch(normalizedLabel);
   if (exactMatch) {
-    return {
+    return applyConfidenceThreshold({
       ...field,
       profileKey: exactMatch,
       confidence: 1,
       unknown: false,
-    };
+    });
   }
 
-  const containedMatch = findContainedLabelMatch(normalizedLabel);
-  if (containedMatch) {
-    return {
-      ...field,
-      profileKey: containedMatch,
-      confidence: 0.9,
-      unknown: false,
-    };
+  const fuzzyLabelMatch = matchWithFuse(field, fuse, normalizedLabel);
+  if (!fuzzyLabelMatch.unknown) {
+    return applyConfidenceThreshold(fuzzyLabelMatch);
   }
 
-  return matchWithFuse(field, fuse, normalizedLabel);
+  const learnedFuzzyMatch = resolveLearnedByFuzzy(learnedFuse, normalizedLabel);
+  if (learnedFuzzyMatch) {
+    void recordLearnedFieldUse(learnedFuzzyMatch.hash, getCurrentSite());
+    const matched = applyLearnedValue(field, learnedFuzzyMatch.value);
+    return applyConfidenceThreshold({
+      ...matched,
+      confidence: 1 - learnedFuzzyMatch.score,
+    });
+  }
+
+  return applyConfidenceThreshold({
+    ...field,
+    profileKey: undefined,
+    confidence: 0,
+    unknown: true,
+  });
 }
 
 function formatDateValue(value: string): string {
@@ -261,12 +304,23 @@ function formatDateValue(value: string): string {
 export function matchFields(
   fields: FormField[],
   profile: UserProfile,
-  learnedFields: Record<string, string>,
+  learnedFields: Record<string, LearnedField>,
 ): FormField[] {
   void flattenProfile(profile);
   const fuse = buildFuseIndex();
+  const uniqueLearned = Object.values(learnedFields).filter(
+    (entry, index, array) =>
+      array.findIndex(
+        (other) =>
+          other.normalizedLabel === entry.normalizedLabel &&
+          other.value === entry.value,
+      ) === index,
+  );
+  const learnedFuse = buildLearnedFuseIndex(uniqueLearned);
 
-  return fields.map((field) => matchSingleField(field, fuse, learnedFields));
+  return fields.map((field) =>
+    matchSingleField(field, fuse, learnedFuse, learnedFields),
+  );
 }
 
 /**

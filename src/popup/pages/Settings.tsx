@@ -14,6 +14,7 @@ import {
   clearAllData,
   getApplications,
   getCoverLetters,
+  getLearnedFieldStats,
   getProfile,
   getSettings,
   saveSettings,
@@ -182,6 +183,9 @@ export default function Settings() {
   const [importError, setImportError] = useState<string | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [learnedStats, setLearnedStats] = useState<{
+    totalLearned: number;
+  } | null>(null);
 
   const importInputRef = useRef<HTMLInputElement>(null);
   const { showToast } = useToast();
@@ -197,12 +201,14 @@ export default function Settings() {
 
   useEffect(() => {
     void (async () => {
-      const [loadedSettings, templates] = await Promise.all([
+      const [loadedSettings, templates, stats] = await Promise.all([
         getSettings(),
         getCoverLetters(),
+        getLearnedFieldStats(),
       ]);
       setSettings(loadedSettings);
       setCoverLetters(templates);
+      setLearnedStats({ totalLearned: stats.totalLearned });
       setIsLoading(false);
     })();
   }, []);
@@ -389,6 +395,12 @@ export default function Settings() {
 
       <SettingsSection title="About">
         <div className="space-y-2 text-sm text-gray-700">
+          {learnedStats !== null ? (
+            <p>
+              You&apos;ve taught the extension {learnedStats.totalLearned} custom
+              fields.
+            </p>
+          ) : null}
           <p>
             <span className="font-medium">Version</span> {VERSION}
           </p>

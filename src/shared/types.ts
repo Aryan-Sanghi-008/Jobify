@@ -310,6 +310,20 @@ export interface AppSettings {
   theme: Theme;
 }
 
+/** A user-taught field mapping with usage metadata. */
+export interface LearnedField {
+  /** ProfileMatchKey or literal user answer. */
+  value: string;
+  /** Normalized label text used for cross-site fuzzy matching. */
+  normalizedLabel: string;
+  /** Unix timestamp (ms) when the mapping was first saved. */
+  learnedAt: number;
+  /** Number of times autofill used this mapping. */
+  timesUsed: number;
+  /** Hostnames where this mapping was learned or used. */
+  sites: string[];
+}
+
 /** Complete shape of all data persisted in chrome.storage.local. */
 export interface StorageSchema {
   /** Candidate profile, or null before initial setup. */
@@ -318,8 +332,8 @@ export interface StorageSchema {
   coverLetters: CoverLetterTemplate[];
   /** Logged job applications. */
   applications: JobApplication[];
-  /** Learned label-hash to FlatProfile-key mappings from user corrections. */
-  learnedFields: Record<string, string>;
+  /** Learned field mappings keyed by label hash and normalized label. */
+  learnedFields: Record<string, LearnedField>;
   /** Extension behavior and UI settings. */
   settings: AppSettings;
 }
@@ -366,6 +380,8 @@ export interface LearnFieldMessage {
   type: 'LEARN_FIELD';
   labelHash: string;
   profileKey: string;
+  normalizedLabel?: string;
+  site?: string;
 }
 
 /** Request to load extension settings. */
@@ -416,6 +432,7 @@ export interface LearnFieldMappingMessage {
   type: 'LEARN_FIELD_MAPPING';
   labelHash: string;
   profileKey: string;
+  normalizedLabel: string;
 }
 
 /** Request to fill a single field on the page by label. */

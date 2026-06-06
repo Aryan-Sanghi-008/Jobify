@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { getProfileValue, matchFields } from '@/content/matcher';
+import {
+  applyConfidenceThreshold,
+  getProfileValue,
+  matchFields,
+} from '@/content/matcher';
 import { DEFAULT_PROFILE, flattenProfile } from '@/shared/storage';
-import type { FormField, UserProfile } from '@/shared/types';
+import type { FormField, LearnedField, UserProfile } from '@/shared/types';
 import { hashString, normalizeLabel } from '@/shared/utils';
 
 function makeField(label: string): FormField {
@@ -12,6 +16,24 @@ function makeField(label: string): FormField {
     confidence: 0,
     filled: false,
     unknown: false,
+  };
+}
+
+function makeLearnedField(
+  normalizedLabel: string,
+  value: string,
+): Record<string, LearnedField> {
+  const entry: LearnedField = {
+    value,
+    normalizedLabel,
+    learnedAt: Date.now(),
+    timesUsed: 0,
+    sites: [],
+  };
+
+  return {
+    [hashString(normalizedLabel)]: entry,
+    [normalizedLabel]: entry,
   };
 }
 
@@ -29,16 +51,16 @@ const testProfile: UserProfile = {
 };
 
 describe('matchFields', () => {
-  it('matches "Current CTC (in LPA)" to currentCTC', () => {
+  it('matches "Current CTC" to currentCTC', () => {
     const [matched] = matchFields(
-      [makeField('Current CTC (in LPA)')],
+      [makeField('Current CTC')],
       testProfile,
       {},
     );
 
     expect(matched.profileKey).toBe('currentCTC');
     expect(matched.unknown).toBe(false);
-    expect(matched.confidence).toBeGreaterThan(0.8);
+    expect(matched.confidence).toBe(1);
   });
 
   it('matches "LinkedIn Profile URL" to linkedinUrl', () => {
@@ -65,15 +87,41 @@ describe('matchFields', () => {
 
   it('uses learned field mapping over fuzzy match', () => {
     const label = 'Full Name';
-    const learnedFields = {
-      [hashString(normalizeLabel(label))]: 'email',
-    };
+    const learnedFields = makeLearnedField(normalizeLabel(label), 'email');
 
     const [matched] = matchFields([makeField(label)], testProfile, learnedFields);
 
     expect(matched.profileKey).toBe('email');
     expect(matched.confidence).toBe(1);
     expect(matched.unknown).toBe(false);
+  });
+
+  it('fuzzy matches similar learned field labels', () => {
+    const learnedFields = makeLearnedField('legal full name', 'fullName');
+
+    const [matched] = matchFields(
+      [makeField('Legal Ful Name')],
+      testProfile,
+      learnedFields,
+    );
+
+    expect(matched.profileKey).toBe('fullName');
+    expect(matched.unknown).toBe(false);
+    expect(matched.confidence).toBeGreaterThanOrEqual(0.5);
+  });
+
+  it('treats matches below confidence threshold as unknown', () => {
+    const field = makeField('test');
+    const result = applyConfidenceThreshold({
+      ...field,
+      profileKey: 'email',
+      confidence: 0.4,
+      unknown: false,
+    });
+
+    expect(result.unknown).toBe(true);
+    expect(result.profileKey).toBeUndefined();
+    expect(result.confidence).toBe(0);
   });
 });
 

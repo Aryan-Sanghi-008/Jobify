@@ -24,6 +24,7 @@ import type {
   FillSingleFieldResponse,
   FlatProfile,
   FormField,
+  LearnedField,
   LearnFieldMappingMessage,
   PageInfoResponse,
   PortalName,
@@ -64,7 +65,7 @@ const CONTENT_MESSAGE_TYPES: ContentMessageType[] = [
   let lastProfile: UserProfile | null = null;
   let lastFlatProfile: FlatProfile | null = null;
   let lastSettings: AppSettings | null = null;
-  let lastLearnedFields: Record<string, string> = {};
+  let lastLearnedFields: Record<string, LearnedField> = {};
 
   function assertRuntimeValid(): void {
     if (!chrome.runtime?.id) {
@@ -99,7 +100,8 @@ const CONTENT_MESSAGE_TYPES: ContentMessageType[] = [
       case 'LEARN_FIELD_MAPPING':
         return (
           typeof message.labelHash === 'string' &&
-          typeof message.profileKey === 'string'
+          typeof message.profileKey === 'string' &&
+          typeof message.normalizedLabel === 'string'
         );
       case 'FILL_SINGLE_FIELD':
         return (
@@ -257,8 +259,13 @@ const CONTENT_MESSAGE_TYPES: ContentMessageType[] = [
   async function handleLearnFieldMapping(
     message: LearnFieldMappingMessage,
   ): Promise<{ success: true }> {
-    await learnField(message.labelHash, message.profileKey);
-    lastLearnedFields[message.labelHash] = message.profileKey;
+    await learnField(
+      message.labelHash,
+      message.profileKey,
+      message.normalizedLabel,
+      window.location.href,
+    );
+    lastLearnedFields = await getLearnedFields();
     showUserToast(`Saved mapping for "${message.profileKey}".`);
     return { success: true };
   }

@@ -117,7 +117,11 @@ export interface UseExtensionResult {
   lastResult: PopupFillResult | null;
   triggerAutofill: () => Promise<void>;
   fillCoverLetter: (templateId: string) => Promise<void>;
-  learnFieldMapping: (labelHash: string, profileKey: string) => Promise<void>;
+  learnFieldMapping: (
+    labelHash: string,
+    profileKey: string,
+    normalizedLabel: string,
+  ) => Promise<void>;
   fillSingleField: (fieldLabel: string, value: string) => Promise<FillSingleFieldResponse>;
   checkFormProgress: () => Promise<void>;
   fillAllUnknownFields: (entries: UnknownFieldEntry[]) => Promise<void>;
@@ -166,12 +170,13 @@ export function useExtension(): UseExtensionResult {
   }, []);
 
   const learnFieldMapping = useCallback(
-    async (labelHash: string, profileKey: string) => {
+    async (labelHash: string, profileKey: string, normalizedLabel: string) => {
       try {
         await sendToActiveTab<{ success: true }>({
           type: 'LEARN_FIELD_MAPPING',
           labelHash,
           profileKey,
+          normalizedLabel,
         });
       } catch {
         // Caller may handle via UI feedback in a later prompt.
@@ -211,6 +216,7 @@ export function useExtension(): UseExtensionResult {
           await learnFieldMapping(
             hashString(normalizeLabel(entry.label)),
             entry.value.trim(),
+            normalizeLabel(entry.label),
           );
         }
 
