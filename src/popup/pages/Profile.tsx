@@ -9,6 +9,11 @@ import {
 } from 'react';
 import Spinner from '@/popup/components/Spinner';
 import { useToast } from '@/popup/components/Toast';
+import {
+  mergeParsedProfile,
+  parseResume,
+  parseResultHasData,
+} from '@/popup/utils/resumeParser';
 import { DEFAULT_PROFILE, getProfile, saveProfile } from '@/shared/storage';
 import type {
   EducationEntry,
@@ -288,6 +293,7 @@ export default function Profile() {
   );
   const [preferredLocationsText, setPreferredLocationsText] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [isParsingResume, setIsParsingResume] = useState(false);
 
   const profileRef = useRef(profile);
   const resumeInputRef = useRef<HTMLInputElement>(null);
@@ -447,9 +453,35 @@ export default function Profile() {
     }
 
     clearFieldError('resume');
+    setIsParsingResume(true);
 
-    // Phase 3: parse PDF with pdfjs-dist and populate profile fields.
-    showToast('Resume parsed', 'success');
+    try {
+      const result = await parseResume(file);
+
+      if (result._error) {
+        showToast(result._error, 'error');
+        return;
+      }
+
+      if (result._warning) {
+        showToast(result._warning, 'info');
+      }
+
+      if (!parseResultHasData(result)) {
+        return;
+      }
+
+      const merged = mergeParsedProfile(profileRef.current, result);
+      updateProfile(() => merged);
+      profileRef.current = merged;
+      setPreferredLocationsText(merged.professional.preferredLocations.join(', '));
+      await saveProfile(merged);
+      showToast('Resume parsed — please review and complete missing fields', 'success');
+    } catch {
+      showToast('Could not parse resume', 'error');
+    } finally {
+      setIsParsingResume(false);
+    }
   };
 
   if (isLoading) {
@@ -473,13 +505,21 @@ export default function Profile() {
         <button
           type="button"
           onClick={() => resumeInputRef.current?.click()}
-          className="w-full rounded-lg border border-dashed border-blue-300 bg-blue-50 px-4 py-2.5 text-sm font-medium text-blue-700 transition-colors hover:bg-blue-100"
+          disabled={isParsingResume}
+          className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-blue-300 bg-blue-50 px-4 py-2.5 text-sm font-medium text-blue-700 transition-colors hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-70"
         >
-          Resume Upload (PDF)
+          {isParsingResume ? (
+            <>
+              <Spinner size="sm" className="text-blue-700" />
+              <span>Parsing resume…</span>
+            </>
+          ) : (
+            <span>Resume Upload (PDF)</span>
+          )}
         </button>
         {errors.resume ? <p className={`${ERROR_CLASS} mt-2`}>{errors.resume}</p> : null}
         <p className="mt-1 text-[11px] text-gray-500">
-          Upload a PDF to auto-populate your profile (parser coming in Phase 3)
+          Upload a PDF to auto-populate your profile fields
         </p>
       </div>
 
