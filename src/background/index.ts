@@ -25,6 +25,7 @@ const MESSAGE_TYPES: MessageType[] = [
   'PING',
   'PORTAL_DETECTED',
   'APPLICATION_COMPLETE',
+  'FORM_STATE_CHANGED',
 ];
 
 const PORTAL_BADGE_ABBREVIATIONS: Record<Exclude<PortalName, 'generic'>, string> =
@@ -108,6 +109,15 @@ function validateMessage(message: unknown): message is ExtensionMessage {
         typeof message.payload.portal === 'string' &&
         typeof message.payload.url === 'string'
       );
+    case 'FORM_STATE_CHANGED':
+      return (
+        isRecord(message.payload) &&
+        typeof message.payload.state === 'string' &&
+        typeof message.payload.pageNumber === 'number' &&
+        typeof message.payload.totalFilled === 'number' &&
+        Array.isArray(message.payload.totalUnknown) &&
+        Array.isArray(message.payload.errors)
+      );
     default:
       return false;
   }
@@ -185,6 +195,8 @@ async function handleMessage(
       await logApplication(application);
       return { success: true };
     }
+    case 'FORM_STATE_CHANGED':
+      return { success: true };
     default: {
       const exhaustiveCheck: never = message;
       throw new Error(`Unhandled message type: ${String(exhaustiveCheck)}`);

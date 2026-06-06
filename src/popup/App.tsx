@@ -161,11 +161,17 @@ export default function App() {
   const {
     isJobPage,
     isFilling,
+    formState,
     lastResult,
     triggerAutofill,
+    continueAutofill,
     fillSingleField,
     fillAllUnknownFields,
   } = useExtension();
+
+  const unknownLabels = formState?.totalUnknown ?? lastResult?.unknown ?? [];
+  const hasUnknownFields = unknownLabels.length > 0;
+  const isWaitingForUser = formState?.state === 'WAITING_FOR_USER';
 
   useEffect(() => {
     void Promise.all([getProfile(), getApplications()])
@@ -178,22 +184,56 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!lastResult?.unknown.length) {
+    if (!unknownLabels.length) {
       setUnknownDrafts({});
       return;
     }
 
     setUnknownDrafts((current) =>
       Object.fromEntries(
-        lastResult.unknown.map((label) => [
+        unknownLabels.map((label) => [
           label,
           current[label] ?? { value: '', saveToProfile: false },
         ]),
       ),
     );
-  }, [lastResult]);
+  }, [unknownLabels]);
 
   const resultMessage = useMemo(() => {
+    if (formState) {
+      if (formState.state === 'NAVIGATING') {
+        return { type: 'success' as const, message: 'Navigating to next page…' };
+      }
+
+      if (formState.state === 'SCANNING' || formState.state === 'FILLING') {
+        return {
+          type: 'success' as const,
+          message: `Page ${formState.pageNumber} · ${formState.state === 'SCANNING' ? 'Scanning…' : 'Filling…'}`,
+        };
+      }
+
+      if (formState.state === 'COMPLETE') {
+        return {
+          type: 'success' as const,
+          message: `Complete · filled ${formState.totalFilled} fields across ${formState.pageNumber} page(s)`,
+        };
+      }
+
+      if (formState.state === 'ERROR') {
+        return {
+          type: 'error' as const,
+          message: formState.errors[0] ?? 'Autofill failed',
+        };
+      }
+
+      if (formState.state === 'WAITING_FOR_USER') {
+        return {
+          type: 'success' as const,
+          message: `Page ${formState.pageNumber} · Filled ${formState.totalFilled} · ${formState.totalUnknown.length} unknown`,
+        };
+      }
+    }
+
     if (!lastResult) {
       return null;
     }
@@ -206,9 +246,7 @@ export default function App() {
       type: 'success' as const,
       message: `Filled ${lastResult.filled} fields · ${lastResult.unknown.length} unknown`,
     };
-  }, [lastResult]);
-
-  const hasUnknownFields = (lastResult?.unknown.length ?? 0) > 0;
+  }, [formState, lastResult]);
 
   const filledEntries = useMemo(
     () =>
@@ -279,10 +317,10 @@ export default function App() {
           {hasUnknownFields ? (
             <div className="mt-3 space-y-2">
               <p className="text-xs font-semibold text-gray-900">
-                {lastResult!.unknown.length} fields need your input
+                {unknownLabels.length} fields need your input
               </p>
               <div className="max-h-40 space-y-2 overflow-y-auto">
-                {lastResult!.unknown.map((label) => {
+                {unknownLabels.map((label) => {
                   const draft = unknownDrafts[label] ?? {
                     value: '',
                     saveToProfile: false,
@@ -331,6 +369,17 @@ export default function App() {
                 Fill all above + continue
               </button>
             </div>
+          ) : null}
+
+          {isWaitingForUser && !hasUnknownFields ? (
+            <button
+              type="button"
+              onClick={() => void continueAutofill()}
+              disabled={isFilling}
+              className="mt-3 w-full rounded-lg border border-blue-300 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Continue
+            </button>
           ) : null}
         </section>
       ) : null}

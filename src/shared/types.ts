@@ -291,10 +291,41 @@ export interface ProfileIncompleteResponse {
   type: 'PROFILE_INCOMPLETE';
 }
 
+/** Immediate ack when the form state machine starts autofill. */
+export interface AutofillStartedResponse {
+  type: 'AUTOFILL_STARTED';
+}
+
 /** Union of possible TRIGGER_AUTOFILL responses from the content script. */
 export type TriggerAutofillResponse =
   | ProfileIncompleteResponse
+  | AutofillStartedResponse
   | SerializableFillResult;
+
+/** States for the multi-page form autofill state machine. */
+export type FormState =
+  | 'IDLE'
+  | 'SCANNING'
+  | 'FILLING'
+  | 'WAITING_FOR_USER'
+  | 'NAVIGATING'
+  | 'COMPLETE'
+  | 'ERROR';
+
+/** Serializable snapshot broadcast to the popup on state changes. */
+export interface FormStatePayload {
+  state: FormState;
+  pageNumber: number;
+  totalFilled: number;
+  totalUnknown: string[];
+  errors: string[];
+}
+
+/** Broadcast from content script when form autofill state changes. */
+export interface FormStateChangedMessage {
+  type: 'FORM_STATE_CHANGED';
+  payload: FormStatePayload;
+}
 
 /** User-configurable extension behavior and appearance. */
 export interface AppSettings {
@@ -347,11 +378,14 @@ export type MessageType =
   | 'GET_SETTINGS'
   | 'PING'
   | 'PORTAL_DETECTED'
-  | 'APPLICATION_COMPLETE';
+  | 'APPLICATION_COMPLETE'
+  | 'FORM_STATE_CHANGED';
 
 /** Message types handled by the content script. */
 export type ContentMessageType =
   | 'TRIGGER_AUTOFILL'
+  | 'CONTINUE_AUTOFILL'
+  | 'STOP_AUTOFILL'
   | 'FILL_COVER_LETTER'
   | 'GET_PAGE_INFO'
   | 'LEARN_FIELD_MAPPING'
@@ -416,6 +450,16 @@ export interface TriggerAutofillMessage {
   type: 'TRIGGER_AUTOFILL';
 }
 
+/** Request to resume autofill after user review. */
+export interface ContinueAutofillMessage {
+  type: 'CONTINUE_AUTOFILL';
+}
+
+/** Request to abort the autofill state machine. */
+export interface StopAutofillMessage {
+  type: 'STOP_AUTOFILL';
+}
+
 /** Request to fill the cover letter field on the current page. */
 export interface FillCoverLetterMessage {
   type: 'FILL_COVER_LETTER';
@@ -475,11 +519,14 @@ export type ExtensionMessage =
   | GetSettingsMessage
   | PingMessage
   | PortalDetectedMessage
-  | ApplicationCompleteMessage;
+  | ApplicationCompleteMessage
+  | FormStateChangedMessage;
 
 /** Discriminated union of messages sent to the content script. */
 export type ContentScriptMessage =
   | TriggerAutofillMessage
+  | ContinueAutofillMessage
+  | StopAutofillMessage
   | FillCoverLetterMessage
   | GetPageInfoMessage
   | LearnFieldMappingMessage

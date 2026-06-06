@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
+  AutofillStartedResponse,
   FillCoverLetterResponse,
   FillSingleFieldResponse,
+  FormStateChangedMessage,
+  FormStatePayload,
   PageInfoResponse,
   PopupFillResult,
   PortalName,
   ProfileIncompleteResponse,
-  SerializableFillResult,
   TriggerAutofillResponse,
 } from '@/shared/types';
 import { hashString, normalizeLabel } from '@/shared/utils';
@@ -18,6 +20,11 @@ export interface UnknownFieldEntry {
 }
 
 const MESSAGE_TIMEOUT_MS = 5000;
+const ACTIVE_FORM_STATES = new Set<FormStatePayload['state']>([
+  'SCANNING',
+  'FILLING',
+  'NAVIGATING',
+]);
 
 const ERROR_RESULT = (message: string): PopupFillResult => ({
   filled: 0,
@@ -32,22 +39,31 @@ function isProfileIncompleteResponse(
   return 'type' in response && response.type === 'PROFILE_INCOMPLETE';
 }
 
-function isSerializableFillResult(
+function isAutofillStartedResponse(
   response: TriggerAutofillResponse,
-): response is SerializableFillResult {
-  return 'filled' in response;
+): response is AutofillStartedResponse {
+  return 'type' in response && response.type === 'AUTOFILL_STARTED';
 }
 
-function normalizeAutofillResponse(response: TriggerAutofillResponse): PopupFillResult {
-  if (isProfileIncompleteResponse(response)) {
-    return ERROR_RESULT('Profile incomplete — add your email in Profile');
-  }
+function isFormStateChangedMessage(message: unknown): message is FormStateChangedMessage {
+  return (
+    typeof message === 'object' &&
+    message !== null &&
+    'type' in message &&
+    message.type === 'FORM_STATE_CHANGED' &&
+    'payload' in message &&
+    typeof message.payload === 'object' &&
+    message.payload !== null
+  );
+}
 
-  if (isSerializableFillResult(response)) {
-    return response;
-  }
-
-  return ERROR_RESULT('Unexpected autofill response');
+function payloadToLastResult(payload: FormStatePayload): PopupFillResult {
+  return {
+    filled: payload.totalFilled,
+    skipped: 0,
+    unknown: payload.totalUnknown,
+    errors: payload.errors,
+  };
 }
 
 /**
@@ -114,8 +130,10 @@ export interface UseExtensionResult {
   pageInfo: { company: string; jobTitle: string; portal: PortalName } | null;
   isJobPage: boolean;
   isFilling: boolean;
+  formState: FormStatePayload | null;
   lastResult: PopupFillResult | null;
   triggerAutofill: () => Promise<void>;
+  continueAutofill: () => Promise<void>;
   fillCoverLetter: (templateId: string) => Promise<void>;
   learnFieldMapping: (
     labelHash: string,
@@ -129,10 +147,14 @@ export interface UseExtensionResult {
 
 export function useExtension(): UseExtensionResult {
   const [pageInfo, setPageInfo] = useState<PageInfoResponse | null>(null);
-  const [isFilling, setIsFilling] = useState(false);
+  const [formState, setFormState] = useState<FormStatePayload | null>(null);
+  const [isStarting, setIsStarting] = useState(false);
   const [lastResult, setLastResult] = useState<PopupFillResult | null>(null);
 
   const isJobPage = pageInfo !== null && pageInfo.portal !== 'generic';
+  const isFilling =
+    isStarting ||
+    (formState !== null && ACTIVE_FORM_STATES.has(formState.state));
 
   useEffect(() => {
     void sendToActiveTab<PageInfoResponse>({ type: 'GET_PAGE_INFO' })
@@ -140,21 +162,66 @@ export function useExtension(): UseExtensionResult {
       .catch(() => setPageInfo(null));
   }, []);
 
+  useEffect(() => {
+    const handleRuntimeMessage = (message: unknown) => {
+      if (!isFormStateChangedMessage(message)) {
+        return;
+      }
+
+      const payload = message.payload;
+      setFormState(payload);
+      setIsStarting(false);
+
+      if (
+        payload.state === 'WAITING_FOR_USER' ||
+        payload.state === 'COMPLETE' ||
+        payload.state === 'ERROR'
+      ) {
+        setLastResult(payloadToLastResult(payload));
+      }
+    };
+
+    chrome.runtime.onMessage.addListener(handleRuntimeMessage);
+    return () => {
+      chrome.runtime.onMessage.removeListener(handleRuntimeMessage);
+    };
+  }, []);
+
   const triggerAutofill = useCallback(async () => {
-    setIsFilling(true);
+    setIsStarting(true);
+    setFormState(null);
     setLastResult(null);
 
     try {
       const response = await sendToActiveTab<TriggerAutofillResponse>({
         type: 'TRIGGER_AUTOFILL',
       });
-      setLastResult(normalizeAutofillResponse(response));
+
+      if (isProfileIncompleteResponse(response)) {
+        setLastResult(ERROR_RESULT('Profile incomplete — add your email in Profile'));
+        setIsStarting(false);
+        return;
+      }
+
+      if (!isAutofillStartedResponse(response)) {
+        setLastResult(ERROR_RESULT('Unexpected autofill response'));
+        setIsStarting(false);
+      }
     } catch (error) {
       setLastResult(
         ERROR_RESULT(error instanceof Error ? error.message : 'Unknown error'),
       );
-    } finally {
-      setIsFilling(false);
+      setIsStarting(false);
+    }
+  }, []);
+
+  const continueAutofill = useCallback(async () => {
+    try {
+      await sendToActiveTab<{ success: true }>({ type: 'CONTINUE_AUTOFILL' });
+    } catch (error) {
+      setLastResult(
+        ERROR_RESULT(error instanceof Error ? error.message : 'Failed to continue autofill'),
+      );
     }
   }, []);
 
@@ -223,9 +290,9 @@ export function useExtension(): UseExtensionResult {
         await fillSingleField(entry.label, entry.value.trim());
       }
 
-      await checkFormProgress();
+      await continueAutofill();
     },
-    [checkFormProgress, fillSingleField, learnFieldMapping],
+    [continueAutofill, fillSingleField, learnFieldMapping],
   );
 
   return useMemo(
@@ -233,8 +300,10 @@ export function useExtension(): UseExtensionResult {
       pageInfo,
       isJobPage,
       isFilling,
+      formState,
       lastResult,
       triggerAutofill,
+      continueAutofill,
       fillCoverLetter,
       learnFieldMapping,
       fillSingleField,
@@ -245,8 +314,10 @@ export function useExtension(): UseExtensionResult {
       pageInfo,
       isJobPage,
       isFilling,
+      formState,
       lastResult,
       triggerAutofill,
+      continueAutofill,
       fillCoverLetter,
       learnFieldMapping,
       fillSingleField,

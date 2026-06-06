@@ -1,8 +1,9 @@
 import { fillFieldWithValue, fillFields } from '@/content/filler';
+import { FormStateMachine } from '@/content/formStateMachine';
 import { matchFields } from '@/content/matcher';
-import { FormObserver } from '@/content/observer';
 import {
   scanForCoverLetterField,
+  scanForNextButton,
   scanPageFields,
 } from '@/content/scanner';
 import {
@@ -19,16 +20,15 @@ import type {
   ContentScriptMessage,
   FillCoverLetterMessage,
   FillCoverLetterResponse,
-  FillResult,
   FillSingleFieldMessage,
   FillSingleFieldResponse,
   FlatProfile,
   FormField,
+  FormStatePayload,
   LearnedField,
   LearnFieldMappingMessage,
   PageInfoResponse,
   PortalName,
-  SerializableFillResult,
   TriggerAutofillResponse,
   UserProfile,
 } from '@/shared/types';
@@ -43,6 +43,8 @@ import {
 
 const CONTENT_MESSAGE_TYPES: ContentMessageType[] = [
   'TRIGGER_AUTOFILL',
+  'CONTINUE_AUTOFILL',
+  'STOP_AUTOFILL',
   'FILL_COVER_LETTER',
   'GET_PAGE_INFO',
   'LEARN_FIELD_MAPPING',
@@ -61,7 +63,6 @@ const CONTENT_MESSAGE_TYPES: ContentMessageType[] = [
 
   globalWindow.__jobAutofillInitialized = true;
 
-  let formObserver: FormObserver | null = null;
   let lastProfile: UserProfile | null = null;
   let lastFlatProfile: FlatProfile | null = null;
   let lastSettings: AppSettings | null = null;
@@ -90,7 +91,10 @@ const CONTENT_MESSAGE_TYPES: ContentMessageType[] = [
 
     switch (message.type) {
       case 'TRIGGER_AUTOFILL':
+      case 'CONTINUE_AUTOFILL':
+      case 'STOP_AUTOFILL':
       case 'GET_PAGE_INFO':
+      case 'CHECK_FORM_PROGRESS':
         return true;
       case 'FILL_COVER_LETTER':
         return (
@@ -107,21 +111,57 @@ const CONTENT_MESSAGE_TYPES: ContentMessageType[] = [
         return (
           typeof message.label === 'string' && typeof message.value === 'string'
         );
-      case 'CHECK_FORM_PROGRESS':
-        return true;
       default:
         return false;
     }
   }
 
-  function serializeFillResult(result: FillResult): SerializableFillResult {
-    return {
-      filled: result.filled,
-      skipped: result.skipped,
-      unknown: result.unknown.map((field) => field.label),
-      errors: result.errors,
-    };
+  function broadcastFormState(payload: FormStatePayload): void {
+    try {
+      assertRuntimeValid();
+      void chrome.runtime.sendMessage({
+        type: 'FORM_STATE_CHANGED',
+        payload,
+      });
+    } catch (error) {
+      console.warn('[JobAutofill Content] Failed to broadcast form state:', error);
+    }
   }
+
+  function notifyApplicationComplete(): void {
+    try {
+      assertRuntimeValid();
+      void chrome.runtime.sendMessage({
+        type: 'APPLICATION_COMPLETE',
+        payload: {
+          company: extractCompanyFromPage(),
+          role: extractJobTitleFromPage(),
+          portal: detectPortal(window.location.href),
+          url: window.location.href,
+        },
+      });
+    } catch (error) {
+      console.warn('[JobAutofill Content] Failed to report completion:', error);
+    }
+  }
+
+  const formStateMachine = new FormStateMachine({
+    scanFields: () => scanPageFields(),
+    matchAndFill: (fields: FormField[]) => {
+      if (!lastProfile || !lastFlatProfile || !lastSettings) {
+        throw new Error('Autofill context is not initialized');
+      }
+
+      const matchedFields = matchFields(fields, lastProfile, lastLearnedFields);
+      return fillFields(matchedFields, lastFlatProfile, lastSettings);
+    },
+    findNextButton: () => scanForNextButton(),
+    clickNext: (button: HTMLButtonElement) => {
+      button.click();
+    },
+    notifyComplete: notifyApplicationComplete,
+    broadcastState: broadcastFormState,
+  });
 
   function showUserToast(message: string): void {
     const toast = document.createElement('div');
@@ -145,49 +185,6 @@ const CONTENT_MESSAGE_TYPES: ContentMessageType[] = [
     window.setTimeout(() => toast.remove(), 3000);
   }
 
-  async function refillKnownFields(fields: FormField[]): Promise<void> {
-    if (!lastProfile || !lastFlatProfile || !lastSettings) {
-      return;
-    }
-
-    const matched = matchFields(fields, lastProfile, lastLearnedFields);
-    const knownFields = matched.filter(
-      (field) => !field.unknown && field.profileKey !== null,
-    );
-
-    if (knownFields.length === 0) {
-      return;
-    }
-
-    fillFields(knownFields, lastFlatProfile, lastSettings);
-  }
-
-  function startFormObserver(): void {
-    formObserver?.stop();
-    formObserver = new FormObserver(
-      (fields) => {
-        void refillKnownFields(fields);
-      },
-      () => {
-        try {
-          assertRuntimeValid();
-          void chrome.runtime.sendMessage({
-            type: 'APPLICATION_COMPLETE',
-            payload: {
-              company: extractCompanyFromPage(),
-              role: extractJobTitleFromPage(),
-              portal: detectPortal(window.location.href),
-              url: window.location.href,
-            },
-          });
-        } catch (error) {
-          console.warn('[JobAutofill Content] Failed to report completion:', error);
-        }
-      },
-    );
-    formObserver.start();
-  }
-
   async function handleTriggerAutofill(): Promise<TriggerAutofillResponse> {
     const [profile, settings, learnedFields] = await Promise.all([
       getProfile(),
@@ -204,13 +201,19 @@ const CONTENT_MESSAGE_TYPES: ContentMessageType[] = [
     lastLearnedFields = learnedFields;
     lastFlatProfile = flattenProfile(profile);
 
-    const scannedFields = scanPageFields();
-    const matchedFields = matchFields(scannedFields, profile, learnedFields);
-    const result = fillFields(matchedFields, lastFlatProfile, settings);
+    formStateMachine.start(profile, settings);
 
-    startFormObserver();
+    return { type: 'AUTOFILL_STARTED' };
+  }
 
-    return serializeFillResult(result);
+  function handleContinueAutofill(): { success: true } {
+    formStateMachine.continue();
+    return { success: true };
+  }
+
+  function handleStopAutofill(): { success: true } {
+    formStateMachine.stop();
+    return { success: true };
   }
 
   async function handleFillCoverLetter(
@@ -294,7 +297,7 @@ const CONTENT_MESSAGE_TYPES: ContentMessageType[] = [
   }
 
   function handleCheckFormProgress(): { success: true } {
-    formObserver?.checkNow();
+    formStateMachine.checkNow();
     return { success: true };
   }
 
@@ -304,6 +307,10 @@ const CONTENT_MESSAGE_TYPES: ContentMessageType[] = [
     switch (message.type) {
       case 'TRIGGER_AUTOFILL':
         return handleTriggerAutofill();
+      case 'CONTINUE_AUTOFILL':
+        return handleContinueAutofill();
+      case 'STOP_AUTOFILL':
+        return handleStopAutofill();
       case 'FILL_COVER_LETTER':
         return handleFillCoverLetter(message);
       case 'GET_PAGE_INFO':
