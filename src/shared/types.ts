@@ -261,6 +261,18 @@ export interface FormField {
   unknown: boolean;
 }
 
+/** Summary returned after attempting to fill form fields on a page. */
+export interface FillResult {
+  /** Number of fields successfully filled. */
+  filled: number;
+  /** Number of fields skipped (file uploads, legal checkboxes, empty values). */
+  skipped: number;
+  /** Fields that could not be matched to profile data. */
+  unknown: FormField[];
+  /** Non-fatal errors encountered while filling fields. */
+  errors: string[];
+}
+
 /** User-configurable extension behavior and appearance. */
 export interface AppSettings {
   /** Automatically trigger autofill when a job portal page loads. */
