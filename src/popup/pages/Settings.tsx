@@ -21,10 +21,12 @@ import {
   getSettings,
   saveSettings,
 } from '@/shared/storage';
+import { getSelectorHealth } from '@/shared/selectorHealth';
 import type {
   AppSettings,
   CoverLetterTemplate,
   JobApplication,
+  PortalName,
   Theme,
   UserProfile,
 } from '@/shared/types';
@@ -190,6 +192,9 @@ export default function Settings() {
     totalLearned: number;
   } | null>(null);
   const [isCopyingDiagnostics, setIsCopyingDiagnostics] = useState(false);
+  const [selectorHealth, setSelectorHealth] = useState<
+    { portal: PortalName; failures: Record<string, number> }[]
+  >([]);
 
   const importInputRef = useRef<HTMLInputElement>(null);
   const { showToast } = useToast();
@@ -215,6 +220,9 @@ export default function Settings() {
       setCoverLetters(templates);
       setLearnedStats({ totalLearned: stats.totalLearned });
       Logger.setDebugMode(loadedSettings.debugMode);
+      if (loadedSettings.debugMode) {
+        setSelectorHealth(await getSelectorHealth());
+      }
       setIsLoading(false);
 
       if (storageSize.exceedsWarningThreshold) {
@@ -368,8 +376,47 @@ export default function Settings() {
           onChange={(checked) => {
             Logger.setDebugMode(checked);
             void persistSettings({ debugMode: checked });
+            if (checked) {
+              void getSelectorHealth().then(setSelectorHealth);
+            } else {
+              setSelectorHealth([]);
+            }
           }}
         />
+        {settings.debugMode ? (
+          <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+              Selector Health
+            </h3>
+            {selectorHealth.length === 0 ? (
+              <p className="mt-2 text-xs text-gray-500">
+                No selector failures recorded yet.
+              </p>
+            ) : (
+              <ul className="mt-2 space-y-2">
+                {selectorHealth.map(({ portal, failures }) => (
+                  <li key={portal}>
+                    <p className="text-sm font-medium capitalize text-gray-800">
+                      {portal}
+                    </p>
+                    <ul className="mt-1 space-y-0.5 pl-3">
+                      {Object.entries(failures)
+                        .sort(([left], [right]) => left.localeCompare(right))
+                        .map(([selectorKey, count]) => (
+                          <li
+                            key={selectorKey}
+                            className="text-xs text-gray-600"
+                          >
+                            {selectorKey}: {count} failure{count === 1 ? '' : 's'}
+                          </li>
+                        ))}
+                    </ul>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ) : null}
         <button
           type="button"
           onClick={() => void handleCopyDiagnosticReport()}

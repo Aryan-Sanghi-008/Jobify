@@ -1,3 +1,4 @@
+import { healSelector, reportSelectorFailure } from '@/content/selectorHealer';
 import type { PortalName } from './types';
 import { isElementVisible, normalizeLabel } from './utils';
 
@@ -576,7 +577,17 @@ export class SelectorRegistry {
       return portalMatch;
     }
 
-    return getGenericFallback(key, root);
+    if (portal !== 'generic' && selectors.length > 0) {
+      void reportSelectorFailure(portal, key);
+    }
+
+    const fallback = getGenericFallback(key, root);
+    if (fallback) {
+      return fallback;
+    }
+
+    const context = root instanceof Element ? root : undefined;
+    return healSelector(portal, key, context);
   }
 }
 

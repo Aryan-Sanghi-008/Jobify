@@ -371,6 +371,8 @@ export interface StorageSchema {
   settings: AppSettings;
   /** Most recent autofill summary for diagnostics (no field values). */
   lastFillResult: SerializableFillResult | null;
+  /** Selector failure counts keyed by portal and selector key. */
+  selectorHealth: Partial<Record<PortalName, Record<string, number>>>;
 }
 
 /** Known runtime message types exchanged between extension contexts. */
