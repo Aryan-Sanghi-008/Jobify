@@ -11,6 +11,7 @@ import type {
   ProfileIncompleteResponse,
   TriggerAutofillResponse,
 } from '@/shared/types';
+import { saveLastFillResult } from '@/shared/storage';
 import { hashString, normalizeLabel } from '@/shared/utils';
 
 export interface UnknownFieldEntry {
@@ -156,6 +157,11 @@ export function useExtension(): UseExtensionResult {
     isStarting ||
     (formState !== null && ACTIVE_FORM_STATES.has(formState.state));
 
+  const persistLastResult = useCallback((result: PopupFillResult) => {
+    setLastResult(result);
+    void saveLastFillResult(result);
+  }, []);
+
   useEffect(() => {
     void sendToActiveTab<PageInfoResponse>({ type: 'GET_PAGE_INFO' })
       .then((info) => setPageInfo(info))
@@ -177,7 +183,7 @@ export function useExtension(): UseExtensionResult {
         payload.state === 'COMPLETE' ||
         payload.state === 'ERROR'
       ) {
-        setLastResult(payloadToLastResult(payload));
+        persistLastResult(payloadToLastResult(payload));
       }
     };
 
@@ -185,7 +191,7 @@ export function useExtension(): UseExtensionResult {
     return () => {
       chrome.runtime.onMessage.removeListener(handleRuntimeMessage);
     };
-  }, []);
+  }, [persistLastResult]);
 
   const triggerAutofill = useCallback(async () => {
     setIsStarting(true);
@@ -198,32 +204,43 @@ export function useExtension(): UseExtensionResult {
       });
 
       if (isProfileIncompleteResponse(response)) {
-        setLastResult(ERROR_RESULT('Profile incomplete — add your email in Profile'));
+        persistLastResult(ERROR_RESULT('Profile incomplete — add your email in Profile'));
         setIsStarting(false);
         return;
       }
 
       if (!isAutofillStartedResponse(response)) {
-        setLastResult(ERROR_RESULT('Unexpected autofill response'));
+        if (
+          typeof response === 'object' &&
+          response !== null &&
+          'filled' in response &&
+          'skipped' in response &&
+          'unknown' in response &&
+          'errors' in response
+        ) {
+          persistLastResult(response);
+        } else {
+          persistLastResult(ERROR_RESULT('Unexpected autofill response'));
+        }
         setIsStarting(false);
       }
     } catch (error) {
-      setLastResult(
+      persistLastResult(
         ERROR_RESULT(error instanceof Error ? error.message : 'Unknown error'),
       );
       setIsStarting(false);
     }
-  }, []);
+  }, [persistLastResult]);
 
   const continueAutofill = useCallback(async () => {
     try {
       await sendToActiveTab<{ success: true }>({ type: 'CONTINUE_AUTOFILL' });
     } catch (error) {
-      setLastResult(
+      persistLastResult(
         ERROR_RESULT(error instanceof Error ? error.message : 'Failed to continue autofill'),
       );
     }
-  }, []);
+  }, [persistLastResult]);
 
   const fillCoverLetter = useCallback(async (templateId: string) => {
     try {

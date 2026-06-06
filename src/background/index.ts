@@ -1,4 +1,5 @@
 import { VERSION } from '@/shared/constants';
+import { Logger } from '@/shared/logger';
 import {
   assertRuntimeValid,
   validateMessage,
@@ -35,6 +36,7 @@ async function initializeStorage(): Promise<void> {
     applications: [],
     learnedFields: {},
     settings: DEFAULT_SETTINGS,
+    lastFillResult: null,
   });
 }
 
@@ -184,10 +186,24 @@ async function notifyPortalDetected(
   }
 }
 
+void Logger.refreshDebugMode();
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local') {
+    return;
+  }
+
+  const nextSettings = changes.settings?.newValue as { debugMode?: boolean } | undefined;
+  if (typeof nextSettings?.debugMode === 'boolean') {
+    Logger.setDebugMode(nextSettings.debugMode);
+  }
+});
+
 chrome.runtime.onInstalled.addListener((details) => {
   void (async () => {
     try {
       assertRuntimeValid();
+      await Logger.refreshDebugMode();
 
       if (details.reason === 'install') {
         await initializeStorage();

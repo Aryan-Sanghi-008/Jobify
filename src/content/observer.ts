@@ -1,4 +1,5 @@
 import { scanPageFields } from '@/content/scanner';
+import { Logger } from '@/shared/logger';
 import type { FormField } from '@/shared/types';
 
 const DEBOUNCE_MS = 300;
@@ -18,7 +19,7 @@ const COMPLETION_URL_PATTERNS = [
 ];
 
 function logObserver(message: string): void {
-  console.log('[JobAutofill Observer]', message);
+  Logger.debug('Observer', message);
 }
 
 function getFieldSignature(field: FormField): string {

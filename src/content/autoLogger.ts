@@ -1,3 +1,4 @@
+import { Logger } from '@/shared/logger';
 import { assertRuntimeValid } from '@/shared/security';
 import type { JobApplication, PortalName } from '@/shared/types';
 import { generateId, isElementVisible } from '@/shared/utils';
@@ -34,7 +35,7 @@ export interface AutoLoggerDeps {
 }
 
 function logAutoLogger(message: string): void {
-  console.log('[JobAutofill AutoLogger]', message);
+  Logger.debug('AutoLogger', message);
 }
 
 function getPageText(): string {
@@ -258,7 +259,11 @@ export class AutoLogger {
         `logged application for ${application.company} - ${application.role}`,
       );
     } catch (error) {
-      console.warn('[JobAutofill AutoLogger] Failed to log application:', error);
+      Logger.error(
+        'AutoLogger',
+        'Failed to log application',
+        error instanceof Error ? error : new Error(String(error)),
+      );
     }
   }
 }

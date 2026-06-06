@@ -13,6 +13,7 @@ import type {
   FlatProfile,
   JobApplication,
   LearnedField,
+  SerializableFillResult,
   StorageSchema,
   UserProfile,
 } from './types';
@@ -24,6 +25,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   highlightUnknownFields: true,
   defaultCoverLetterId: null,
   theme: 'system',
+  debugMode: false,
 };
 
 export const DEFAULT_PROFILE: UserProfile = {
@@ -539,6 +541,27 @@ export async function saveSettings(settings: Partial<AppSettings>): Promise<void
     await storageSet({ settings: { ...current, ...settings } });
   } catch (error) {
     logStorageError('saveSettings', error);
+    throw error;
+  }
+}
+
+export async function getLastFillResult(): Promise<SerializableFillResult | null> {
+  try {
+    const result = await storageGet('lastFillResult');
+    return result ?? null;
+  } catch (error) {
+    logStorageError('getLastFillResult', error);
+    throw error;
+  }
+}
+
+export async function saveLastFillResult(
+  result: SerializableFillResult,
+): Promise<void> {
+  try {
+    await storageSet({ lastFillResult: sanitizeStorageData(result) });
+  } catch (error) {
+    logStorageError('saveLastFillResult', error);
     throw error;
   }
 }

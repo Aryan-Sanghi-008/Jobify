@@ -10,6 +10,7 @@ import ConfirmDialog from '@/popup/components/ConfirmDialog';
 import Spinner from '@/popup/components/Spinner';
 import { useToast } from '@/popup/components/Toast';
 import { VERSION } from '@/shared/constants';
+import { generateDiagnosticReport, Logger } from '@/shared/logger';
 import { checkStorageSize } from '@/shared/security';
 import {
   clearAllData,
@@ -99,7 +100,8 @@ function isAppSettings(value: unknown): value is AppSettings {
     typeof value.pauseBeforeSubmit === 'boolean' &&
     typeof value.highlightUnknownFields === 'boolean' &&
     (value.defaultCoverLetterId === null || typeof value.defaultCoverLetterId === 'string') &&
-    isTheme(value.theme)
+    isTheme(value.theme) &&
+    (value.debugMode === undefined || typeof value.debugMode === 'boolean')
   );
 }
 
@@ -187,6 +189,7 @@ export default function Settings() {
   const [learnedStats, setLearnedStats] = useState<{
     totalLearned: number;
   } | null>(null);
+  const [isCopyingDiagnostics, setIsCopyingDiagnostics] = useState(false);
 
   const importInputRef = useRef<HTMLInputElement>(null);
   const { showToast } = useToast();
@@ -211,6 +214,7 @@ export default function Settings() {
       setSettings(loadedSettings);
       setCoverLetters(templates);
       setLearnedStats({ totalLearned: stats.totalLearned });
+      Logger.setDebugMode(loadedSettings.debugMode);
       setIsLoading(false);
 
       if (storageSize.exceedsWarningThreshold) {
@@ -290,6 +294,20 @@ export default function Settings() {
     window.location.reload();
   };
 
+  const handleCopyDiagnosticReport = async () => {
+    setIsCopyingDiagnostics(true);
+
+    try {
+      const report = await generateDiagnosticReport();
+      await navigator.clipboard.writeText(report);
+      showToast('Diagnostic report copied to clipboard', 'success');
+    } catch {
+      showToast('Could not copy diagnostic report', 'error');
+    } finally {
+      setIsCopyingDiagnostics(false);
+    }
+  };
+
   if (isLoading || !settings) {
     return (
       <div className="flex items-center justify-center py-16">
@@ -340,6 +358,26 @@ export default function Settings() {
             </option>
           ))}
         </select>
+      </SettingsSection>
+
+      <SettingsSection title="Developer">
+        <ToggleRow
+          label="Debug mode"
+          description="Verbose logs in the console. Never includes email, phone, CTC, or cover letter text."
+          checked={settings.debugMode}
+          onChange={(checked) => {
+            Logger.setDebugMode(checked);
+            void persistSettings({ debugMode: checked });
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => void handleCopyDiagnosticReport()}
+          disabled={isCopyingDiagnostics}
+          className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-70"
+        >
+          {isCopyingDiagnostics ? 'Copying…' : 'Copy diagnostic report'}
+        </button>
       </SettingsSection>
 
       <SettingsSection title="Appearance">

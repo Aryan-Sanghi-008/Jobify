@@ -339,6 +339,8 @@ export interface AppSettings {
   defaultCoverLetterId: string | null;
   /** Popup color scheme preference. */
   theme: Theme;
+  /** Enable verbose debug logging (no PII). */
+  debugMode: boolean;
 }
 
 /** A user-taught field mapping with usage metadata. */
@@ -367,6 +369,8 @@ export interface StorageSchema {
   learnedFields: Record<string, LearnedField>;
   /** Extension behavior and UI settings. */
   settings: AppSettings;
+  /** Most recent autofill summary for diagnostics (no field values). */
+  lastFillResult: SerializableFillResult | null;
 }
 
 /** Known runtime message types exchanged between extension contexts. */

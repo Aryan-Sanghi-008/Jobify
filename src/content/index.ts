@@ -7,6 +7,7 @@ import {
   scanForNextButton,
   scanPageFields,
 } from '@/content/scanner';
+import { Logger } from '@/shared/logger';
 import {
   assertRuntimeValid,
   createRateLimiter,
@@ -76,7 +77,7 @@ const triggerAutofillLimiter = createRateLimiter({
         payload,
       });
     } catch (error) {
-      console.warn('[JobAutofill Content] Failed to broadcast form state:', error);
+      Logger.warn('Content', 'Failed to broadcast form state', error);
     }
   }
 
@@ -134,7 +135,7 @@ const triggerAutofillLimiter = createRateLimiter({
     assertRuntimeValid();
 
     if (triggerAutofillLimiter.isLimited()) {
-      console.warn('[JobAutofill Content] TRIGGER_AUTOFILL rate limit exceeded');
+      Logger.warn('Content', 'TRIGGER_AUTOFILL rate limit exceeded');
       return {
         filled: 0,
         skipped: 0,
@@ -304,7 +305,7 @@ const triggerAutofillLimiter = createRateLimiter({
         portal,
       });
     } catch (error) {
-      console.warn('[JobAutofill Content] Failed to notify portal detection:', error);
+      Logger.warn('Content', 'Failed to notify portal detection', error);
     }
   }
 
@@ -313,12 +314,13 @@ const triggerAutofillLimiter = createRateLimiter({
       assertRuntimeValid();
       await chrome.runtime.sendMessage({ type: 'PING' });
     } catch (error) {
-      console.warn('[JobAutofill Content] Background ping failed:', error);
+      Logger.warn('Content', 'Background ping failed', error);
     }
   }
 
   async function initialize(): Promise<void> {
     assertRuntimeValid();
+    await Logger.refreshDebugMode();
 
     const portal = detectPortal(window.location.href);
     await pingBackground();
@@ -349,6 +351,17 @@ const triggerAutofillLimiter = createRateLimiter({
       });
 
     return true;
+  });
+
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local') {
+      return;
+    }
+
+    const nextSettings = changes.settings?.newValue as { debugMode?: boolean } | undefined;
+    if (typeof nextSettings?.debugMode === 'boolean') {
+      Logger.setDebugMode(nextSettings.debugMode);
+    }
   });
 
   void initialize();

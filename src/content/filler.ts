@@ -1,4 +1,5 @@
 import { getProfileValue } from '@/content/matcher';
+import { Logger } from '@/shared/logger';
 import {
   FILLED_FIELD_HIGHLIGHT_STYLE,
   UNKNOWN_FIELD_HIGHLIGHT_STYLE,
@@ -21,7 +22,7 @@ const LEGAL_CHECKBOX_PATTERN = /agree|terms|consent|privacy|conditions/i;
 const FILE_SKIP_REASON = 'File upload requires manual selection';
 
 function logFiller(action: string, label: string): void {
-  console.log('[JobAutofill Filler]', action, label);
+  Logger.debug('Filler', action, { label });
 }
 
 function applyHighlight(element: HTMLElement, style: string): void {
