@@ -149,10 +149,12 @@ const PORTAL_SELECTORS: Record<PortalName, PortalSelectors> = {
       'form',
     ],
     jobTitle: [
+      'h1[class*="title"]',
       '[data-test="job-title"]',
       'h1',
     ],
     companyName: [
+      '.company-name',
       '[data-test="company-name"]',
       'a[data-test="startup-link"]',
       '[class*="company"]',
@@ -163,6 +165,8 @@ const PORTAL_SELECTORS: Record<PortalName, PortalSelectors> = {
     ],
     easyApplyButton: [],
     coverLetterField: [
+      'textarea[name*="interested" i]',
+      'textarea[placeholder*="interested" i]',
       'textarea[name*="cover" i]',
       'textarea[data-test*="cover" i]',
     ],
