@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent,
   type ReactNode,
   type SVGProps,
 } from "react";
@@ -39,6 +40,71 @@ const INPUT_CLASS =
 
 function isProfileComplete(profile: UserProfile | null): boolean {
   return profile !== null && profile.personal.email.trim() !== "";
+}
+
+interface AutofillButtonState {
+  disabled: boolean;
+  className: string;
+  label: string;
+  tooltip?: string;
+  showSpinner: boolean;
+}
+
+function getAutofillButtonState({
+  isJobPage,
+  profileComplete,
+  isFilling,
+  recentSuccess,
+}: {
+  isJobPage: boolean;
+  profileComplete: boolean;
+  isFilling: boolean;
+  recentSuccess: { filledCount: number } | null;
+}): AutofillButtonState {
+  if (recentSuccess) {
+    return {
+      disabled: true,
+      className: "bg-green-600 hover:bg-green-600",
+      label: `Filled ${recentSuccess.filledCount} fields!`,
+      showSpinner: false,
+    };
+  }
+
+  if (isFilling) {
+    return {
+      disabled: true,
+      className: "bg-blue-600 hover:bg-blue-600",
+      label: "Filling…",
+      showSpinner: true,
+    };
+  }
+
+  if (!isJobPage) {
+    return {
+      disabled: true,
+      className: "bg-gray-400 hover:bg-gray-400",
+      label: "Auto-fill this page",
+      tooltip: "Navigate to a job listing first",
+      showSpinner: false,
+    };
+  }
+
+  if (!profileComplete) {
+    return {
+      disabled: false,
+      className: "bg-amber-500 hover:bg-amber-600",
+      label: "Complete profile first",
+      tooltip: "Add your email in Profile",
+      showSpinner: false,
+    };
+  }
+
+  return {
+    disabled: false,
+    className: "bg-blue-600 hover:bg-blue-700",
+    label: "Auto-fill this page",
+    showSpinner: false,
+  };
 }
 
 function IconUser(props: SVGProps<SVGSVGElement>) {
@@ -154,6 +220,17 @@ interface ToggleRowProps {
   onChange: (checked: boolean) => void;
 }
 
+function handleSwitchKeyDown(
+  event: KeyboardEvent<HTMLButtonElement>,
+  checked: boolean,
+  onChange: (checked: boolean) => void,
+): void {
+  if (event.key === " " || event.key === "Enter") {
+    event.preventDefault();
+    onChange(!checked);
+  }
+}
+
 function ToggleRow({ label, checked, onChange }: ToggleRowProps) {
   return (
     <div className="flex items-center justify-between gap-2">
@@ -162,7 +239,9 @@ function ToggleRow({ label, checked, onChange }: ToggleRowProps) {
         type="button"
         role="switch"
         aria-checked={checked}
+        aria-label={label}
         onClick={() => onChange(!checked)}
+        onKeyDown={(event) => handleSwitchKeyDown(event, checked, onChange)}
         className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
           checked ? "bg-blue-600" : "bg-gray-300"
         }`}
@@ -186,6 +265,9 @@ export default function App() {
   const [unknownDrafts, setUnknownDrafts] = useState<
     Record<string, UnknownFieldDraft>
   >({});
+  const [recentSuccess, setRecentSuccess] = useState<{
+    filledCount: number;
+  } | null>(null);
 
   const {
     isJobPage,
@@ -249,6 +331,62 @@ export default function App() {
       ),
     );
   }, [unknownLabels]);
+
+  useEffect(() => {
+    let filledCount = 0;
+
+    if (formState?.state === "COMPLETE" && formState.totalFilled > 0) {
+      filledCount = formState.totalFilled;
+    } else if (
+      lastResult &&
+      lastResult.errors.length === 0 &&
+      lastResult.filled > 0 &&
+      !isFilling
+    ) {
+      filledCount = lastResult.filled;
+    } else {
+      return;
+    }
+
+    setRecentSuccess({ filledCount });
+    const timer = window.setTimeout(() => {
+      setRecentSuccess(null);
+    }, 2500);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [
+    formState?.state,
+    formState?.totalFilled,
+    lastResult?.filled,
+    lastResult?.errors.length,
+    isFilling,
+  ]);
+
+  const autofillButton = useMemo(
+    () =>
+      getAutofillButtonState({
+        isJobPage,
+        profileComplete,
+        isFilling,
+        recentSuccess,
+      }),
+    [isJobPage, profileComplete, isFilling, recentSuccess],
+  );
+
+  const handleAutofillClick = () => {
+    if (!isJobPage || isFilling || recentSuccess) {
+      return;
+    }
+
+    if (!profileComplete) {
+      setActiveTab("profile");
+      return;
+    }
+
+    void triggerAutofill();
+  };
 
   const resultMessage = useMemo(() => {
     if (formState) {
@@ -323,7 +461,7 @@ export default function App() {
 
   if (isInitialLoading) {
     return (
-      <div className="flex h-[520px] w-[380px] min-w-[360px] items-center justify-center bg-white">
+      <div className="flex h-[600px] max-h-[600px] w-[380px] min-w-[360px] items-center justify-center overflow-hidden bg-white">
         <Spinner size="md" className="text-blue-600" />
       </div>
     );
@@ -343,7 +481,7 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-[520px] w-[380px] min-w-[360px] flex-col bg-white text-gray-900">
+    <div className="flex h-[600px] max-h-[600px] w-[380px] min-w-[360px] flex-col overflow-hidden bg-white text-gray-900">
       <header className="border-b border-gray-200 px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
@@ -361,22 +499,22 @@ export default function App() {
         </div>
       </header>
 
-      {isJobPage ? (
-        <section className="border-b border-gray-200 px-4 py-3">
+      <section className="max-h-[240px] shrink-0 overflow-y-auto border-b border-gray-200 px-4 py-3">
           <button
             ref={autofillButtonRef}
             type="button"
-            onClick={() => void triggerAutofill()}
-            disabled={isFilling}
-            className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70"
+            onClick={handleAutofillClick}
+            disabled={autofillButton.disabled}
+            title={autofillButton.tooltip}
+            className={`flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-white transition-colors disabled:cursor-not-allowed disabled:opacity-70 ${autofillButton.className}`}
           >
-            {isFilling ? (
+            {autofillButton.showSpinner ? (
               <>
                 <Spinner size="sm" className="text-white" />
-                <span>Auto-filling…</span>
+                <span>{autofillButton.label}</span>
               </>
             ) : (
-              <span>Auto-fill this page</span>
+              <span>{autofillButton.label}</span>
             )}
           </button>
           <p className="mt-1 text-center text-[10px] text-gray-400">
@@ -386,7 +524,7 @@ export default function App() {
             Shortcuts can be customized at chrome://extensions/shortcuts
           </p>
 
-          {resultMessage ? (
+          {isJobPage && resultMessage ? (
             <p
               className={`mt-2 text-center text-xs ${
                 resultMessage.type === "success"
@@ -398,12 +536,12 @@ export default function App() {
             </p>
           ) : null}
 
-          {hasUnknownFields ? (
+          {isJobPage && hasUnknownFields ? (
             <div className="mt-3 space-y-2">
               <p className="text-xs font-semibold text-gray-900">
                 {unknownLabels.length} fields need your input
               </p>
-              <div className="max-h-40 space-y-2 overflow-y-auto">
+              <div className="space-y-2">
                 {unknownLabels.map((label) => {
                   const draft = unknownDrafts[label] ?? {
                     value: "",
@@ -459,7 +597,7 @@ export default function App() {
             </div>
           ) : null}
 
-          {isWaitingForUser && !hasUnknownFields ? (
+          {isJobPage && isWaitingForUser && !hasUnknownFields ? (
             <button
               type="button"
               onClick={() => void continueAutofill()}
@@ -469,10 +607,9 @@ export default function App() {
               Continue
             </button>
           ) : null}
-        </section>
-      ) : null}
+      </section>
 
-      <main className="flex-1 overflow-y-auto">
+      <main className="min-h-0 flex-1 overflow-y-auto">
         <Suspense
           fallback={
             <div className="flex h-full items-center justify-center py-12">
@@ -499,6 +636,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setActiveTab(tab.id)}
+                  aria-current={isActive ? "page" : undefined}
                   className={`relative flex w-full flex-col items-center gap-1 px-2 py-2.5 text-[10px] font-medium transition-colors ${
                     isActive
                       ? "text-blue-600"

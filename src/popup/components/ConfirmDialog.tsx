@@ -1,3 +1,6 @@
+import { useEffect, useRef } from 'react';
+import { useEscapeKey } from '@/popup/hooks/useEscapeKey';
+
 interface ConfirmDialogProps {
   title: string;
   message: string;
@@ -13,6 +16,14 @@ export default function ConfirmDialog({
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
+  const cancelButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEscapeKey(onCancel);
+
+  useEffect(() => {
+    cancelButtonRef.current?.focus();
+  }, []);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
       <div
@@ -27,6 +38,7 @@ export default function ConfirmDialog({
         <p className="mt-2 text-sm text-gray-600">{message}</p>
         <div className="mt-4 flex gap-2">
           <button
+            ref={cancelButtonRef}
             type="button"
             onClick={onCancel}
             className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50"

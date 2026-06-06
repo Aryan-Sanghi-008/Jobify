@@ -4,9 +4,11 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type KeyboardEvent,
   type ReactNode,
 } from 'react';
 import ConfirmDialog from '@/popup/components/ConfirmDialog';
+import { useEscapeKey } from '@/popup/hooks/useEscapeKey';
 import Spinner from '@/popup/components/Spinner';
 import { useToast } from '@/popup/components/Toast';
 import {
@@ -61,6 +63,14 @@ function ImportPreviewDialog({
   onConfirm,
   onCancel,
 }: ImportPreviewDialogProps) {
+  const cancelButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEscapeKey(onCancel, !isImporting);
+
+  useEffect(() => {
+    cancelButtonRef.current?.focus();
+  }, []);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
       <div
@@ -129,6 +139,7 @@ function ImportPreviewDialog({
 
         <div className="mt-4 flex gap-2">
           <button
+            ref={cancelButtonRef}
             type="button"
             onClick={onCancel}
             disabled={isImporting}
@@ -158,6 +169,17 @@ interface ToggleRowProps {
   onChange: (checked: boolean) => void;
 }
 
+function handleSwitchKeyDown(
+  event: KeyboardEvent<HTMLButtonElement>,
+  checked: boolean,
+  onChange: (checked: boolean) => void,
+): void {
+  if (event.key === ' ' || event.key === 'Enter') {
+    event.preventDefault();
+    onChange(!checked);
+  }
+}
+
 function ToggleRow({ label, description, warning, checked, onChange }: ToggleRowProps) {
   return (
     <div className="flex items-start justify-between gap-3 py-2">
@@ -174,7 +196,9 @@ function ToggleRow({ label, description, warning, checked, onChange }: ToggleRow
         type="button"
         role="switch"
         aria-checked={checked}
+        aria-label={label}
         onClick={() => onChange(!checked)}
+        onKeyDown={(event) => handleSwitchKeyDown(event, checked, onChange)}
         className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
           checked ? 'bg-blue-600' : 'bg-gray-300'
         }`}

@@ -301,7 +301,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
   };
 
   return (
-    <div className="flex h-[520px] w-[380px] min-w-[360px] flex-col bg-white text-gray-900">
+    <div className="flex h-[600px] max-h-[600px] w-[380px] min-w-[360px] flex-col overflow-hidden bg-white text-gray-900">
       <header className="border-b border-gray-200 px-4 py-4">
         <div className="mb-3 flex items-center justify-between gap-3">
           <p className="text-xs font-medium uppercase tracking-wide text-gray-500">

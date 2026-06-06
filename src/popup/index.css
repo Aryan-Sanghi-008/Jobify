@@ -3,6 +3,11 @@
 @tailwind utilities;
 
 @layer base {
+  html,
+  body {
+    @apply overflow-hidden;
+  }
+
   body {
     @apply m-0 w-[380px] min-w-[360px] min-h-[500px] max-h-[600px] bg-white text-gray-900 antialiased;
     font-family:

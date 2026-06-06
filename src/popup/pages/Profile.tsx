@@ -1,12 +1,14 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ChangeEvent,
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
+import ProfileCompletionRing from '@/popup/components/ProfileCompletionRing';
 import Spinner from '@/popup/components/Spinner';
 import { useToast } from '@/popup/components/Toast';
 import {
@@ -22,6 +24,7 @@ import {
   validateUrl,
   validateYear,
 } from '@/shared/security';
+import { getProfileCompletionScore } from '@/shared/profileScore';
 import { DEFAULT_PROFILE, getProfile, saveProfile } from '@/shared/storage';
 import type {
   EducationEntry,
@@ -50,6 +53,26 @@ const INPUT_CLASS =
   'w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500';
 const LABEL_CLASS = 'mb-1 block text-xs font-medium text-gray-700';
 const ERROR_CLASS = 'mt-1 text-xs text-red-600';
+
+const PROFILE_PLACEHOLDERS: Record<string, string> = {
+  'personal.fullName': 'Jane Doe',
+  'personal.email': 'you@example.com',
+  'personal.phone': '+91 98765 43210',
+  'personal.city': 'e.g. Bangalore',
+  'personal.linkedinUrl': 'e.g. https://linkedin.com/in/yourname',
+  'professional.currentTitle': 'e.g. Software Engineer',
+  'professional.currentCTC': 'e.g. 12 (in LPA)',
+  'professional.expectedCTC': 'e.g. 18 (in LPA)',
+  'professional.noticePeriod': 'e.g. 30 (in days)',
+};
+
+function textPlaceholder(fieldKey: string, value: string): string | undefined {
+  return value.trim() ? undefined : PROFILE_PLACEHOLDERS[fieldKey];
+}
+
+function numberPlaceholder(fieldKey: string, value: number): string | undefined {
+  return value > 0 ? undefined : PROFILE_PLACEHOLDERS[fieldKey];
+}
 
 function mergeProfile(stored: UserProfile | null): UserProfile {
   if (!stored) {
@@ -130,13 +153,16 @@ function parseNumberInput(value: string): number {
 interface FormFieldProps {
   label: string;
   error?: string;
+  inputId?: string;
   children: ReactNode;
 }
 
-function FormField({ label, error, children }: FormFieldProps) {
+function FormField({ label, error, inputId, children }: FormFieldProps) {
   return (
     <div>
-      <label className={LABEL_CLASS}>{label}</label>
+      <label className={LABEL_CLASS} htmlFor={inputId}>
+        {label}
+      </label>
       {children}
       {error ? <p className={ERROR_CLASS}>{error}</p> : null}
     </div>
@@ -230,16 +256,21 @@ interface AccordionSectionProps {
 }
 
 function AccordionSection({
+  id,
   label,
   isOpen,
   onToggle,
   children,
 }: AccordionSectionProps) {
+  const panelId = `profile-section-${id}`;
+
   return (
     <section className="border-b border-gray-200">
       <button
         type="button"
         onClick={onToggle}
+        aria-expanded={isOpen}
+        aria-controls={panelId}
         className="flex w-full items-center justify-between px-4 py-3 text-left text-sm font-semibold text-gray-900 hover:bg-gray-50"
       >
         <span>{label}</span>
@@ -247,7 +278,11 @@ function AccordionSection({
           ▾
         </span>
       </button>
-      {isOpen ? <div className="space-y-4 px-4 pb-4">{children}</div> : null}
+      {isOpen ? (
+        <div id={panelId} className="space-y-4 px-4 pb-4">
+          {children}
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -267,6 +302,11 @@ export default function Profile() {
   const { showToast } = useToast();
 
   profileRef.current = profile;
+
+  const completionScore = useMemo(
+    () => getProfileCompletionScore(profile).score,
+    [profile],
+  );
 
   const updateProfile = useCallback((updater: (current: UserProfile) => UserProfile) => {
     setProfile((current) => {
@@ -462,6 +502,10 @@ export default function Profile() {
   return (
     <div className="relative pb-4">
       <div className="border-b border-gray-200 px-4 py-3">
+        <ProfileCompletionRing score={completionScore} />
+      </div>
+
+      <div className="border-b border-gray-200 px-4 py-3">
         <input
           ref={resumeInputRef}
           type="file"
@@ -500,13 +544,22 @@ export default function Profile() {
         >
           {section.id === 'personal' ? (
             <div className="grid grid-cols-1 gap-3">
-              <FormField label="Full Name" error={errors['personal.fullName']}>
+              <FormField
+                label="Full Name"
+                inputId="profile-full-name"
+                error={errors['personal.fullName']}
+              >
                 <input
+                  id="profile-full-name"
                   type="text"
                   value={profile.personal.fullName}
                   onChange={(event) => updatePersonal('fullName', event.target.value)}
                   onBlur={() => void handleValidatedBlur('personal.fullName', null)}
                   className={INPUT_CLASS}
+                  placeholder={textPlaceholder(
+                    'personal.fullName',
+                    profile.personal.fullName,
+                  )}
                 />
               </FormField>
               <div className="grid grid-cols-2 gap-3">
@@ -529,8 +582,13 @@ export default function Profile() {
                   />
                 </FormField>
               </div>
-              <FormField label="Email" error={errors['personal.email']}>
+              <FormField
+                label="Email"
+                inputId="profile-email"
+                error={errors['personal.email']}
+              >
                 <input
+                  id="profile-email"
                   type="email"
                   value={profile.personal.email}
                   onChange={(event) => updatePersonal('email', event.target.value)}
@@ -541,10 +599,16 @@ export default function Profile() {
                     )
                   }
                   className={INPUT_CLASS}
+                  placeholder={textPlaceholder('personal.email', profile.personal.email)}
                 />
               </FormField>
-              <FormField label="Phone" error={errors['personal.phone']}>
+              <FormField
+                label="Phone"
+                inputId="profile-phone"
+                error={errors['personal.phone']}
+              >
                 <input
+                  id="profile-phone"
                   type="tel"
                   value={profile.personal.phone}
                   onChange={(event) => updatePersonal('phone', event.target.value)}
@@ -555,16 +619,19 @@ export default function Profile() {
                     )
                   }
                   className={INPUT_CLASS}
+                  placeholder={textPlaceholder('personal.phone', profile.personal.phone)}
                 />
               </FormField>
               <div className="grid grid-cols-2 gap-3">
-                <FormField label="City" error={errors['personal.city']}>
+                <FormField label="City" inputId="profile-city" error={errors['personal.city']}>
                   <input
+                    id="profile-city"
                     type="text"
                     value={profile.personal.city}
                     onChange={(event) => updatePersonal('city', event.target.value)}
                     onBlur={() => void handleValidatedBlur('personal.city', null)}
                     className={INPUT_CLASS}
+                    placeholder={textPlaceholder('personal.city', profile.personal.city)}
                   />
                 </FormField>
                 <FormField label="State" error={errors['personal.state']}>
@@ -586,8 +653,13 @@ export default function Profile() {
                   className={INPUT_CLASS}
                 />
               </FormField>
-              <FormField label="LinkedIn URL" error={errors['personal.linkedinUrl']}>
+              <FormField
+                label="LinkedIn URL"
+                inputId="profile-linkedin"
+                error={errors['personal.linkedinUrl']}
+              >
                 <input
+                  id="profile-linkedin"
                   type="url"
                   value={profile.personal.linkedinUrl}
                   onChange={(event) => updatePersonal('linkedinUrl', event.target.value)}
@@ -598,7 +670,10 @@ export default function Profile() {
                     )
                   }
                   className={INPUT_CLASS}
-                  placeholder="https://linkedin.com/in/..."
+                  placeholder={textPlaceholder(
+                    'personal.linkedinUrl',
+                    profile.personal.linkedinUrl,
+                  )}
                 />
               </FormField>
               <FormField label="GitHub URL" error={errors['personal.githubUrl']}>
@@ -636,8 +711,13 @@ export default function Profile() {
 
           {section.id === 'professional' ? (
             <div className="grid grid-cols-1 gap-3">
-              <FormField label="Current Job Title" error={errors['professional.currentTitle']}>
+              <FormField
+                label="Current Job Title"
+                inputId="profile-current-title"
+                error={errors['professional.currentTitle']}
+              >
                 <input
+                  id="profile-current-title"
                   type="text"
                   value={profile.professional.currentTitle}
                   onChange={(event) =>
@@ -645,6 +725,10 @@ export default function Profile() {
                   }
                   onBlur={() => void handleValidatedBlur('professional.currentTitle', null)}
                   className={INPUT_CLASS}
+                  placeholder={textPlaceholder(
+                    'professional.currentTitle',
+                    profile.professional.currentTitle,
+                  )}
                 />
               </FormField>
               <FormField label="Current Company" error={errors['professional.currentCompany']}>
@@ -688,9 +772,11 @@ export default function Profile() {
                 </FormField>
                 <FormField
                   label="Notice Period (days)"
+                  inputId="profile-notice-period"
                   error={errors['professional.noticePeriod']}
                 >
                   <input
+                    id="profile-notice-period"
                     type="number"
                     min="0"
                     value={formatNumberInput(profile.professional.noticePeriod)}
@@ -709,15 +795,21 @@ export default function Profile() {
                       )
                     }
                     className={INPUT_CLASS}
+                    placeholder={numberPlaceholder(
+                      'professional.noticePeriod',
+                      profile.professional.noticePeriod,
+                    )}
                   />
                 </FormField>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <FormField
                   label="Current CTC (LPA)"
+                  inputId="profile-current-ctc"
                   error={errors['professional.currentCTC']}
                 >
                   <input
+                    id="profile-current-ctc"
                     type="number"
                     min="0"
                     step="0.1"
@@ -735,13 +827,19 @@ export default function Profile() {
                       )
                     }
                     className={INPUT_CLASS}
+                    placeholder={numberPlaceholder(
+                      'professional.currentCTC',
+                      profile.professional.currentCTC,
+                    )}
                   />
                 </FormField>
                 <FormField
                   label="Expected CTC (LPA)"
+                  inputId="profile-expected-ctc"
                   error={errors['professional.expectedCTC']}
                 >
                   <input
+                    id="profile-expected-ctc"
                     type="number"
                     min="0"
                     step="0.1"
@@ -759,6 +857,10 @@ export default function Profile() {
                       )
                     }
                     className={INPUT_CLASS}
+                    placeholder={numberPlaceholder(
+                      'professional.expectedCTC',
+                      profile.professional.expectedCTC,
+                    )}
                   />
                 </FormField>
               </div>
