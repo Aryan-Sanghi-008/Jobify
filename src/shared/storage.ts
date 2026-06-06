@@ -332,7 +332,9 @@ export async function updateApplicationStatus(
   try {
     const existing = await getApplications();
     const updated = existing.map((app) =>
-      app.id === id ? { ...app, status } : app,
+      app.id === id
+        ? { ...app, status, statusUpdatedAt: Date.now() }
+        : app,
     );
     await storageSet({ applications: updated });
   } catch (error) {

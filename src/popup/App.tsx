@@ -21,9 +21,16 @@ const Profile = lazy(() => import("./pages/Profile"));
 const CoverLetters = lazy(() => import("./pages/CoverLetters"));
 const Tracker = lazy(() => import("./pages/Tracker"));
 const Discover = lazy(() => import("./pages/Discover"));
+const Analytics = lazy(() => import("./pages/Analytics"));
 const Settings = lazy(() => import("./pages/Settings"));
 
-type TabId = "profile" | "cover-letters" | "tracker" | "discover" | "settings";
+type TabId =
+  | "profile"
+  | "cover-letters"
+  | "tracker"
+  | "analytics"
+  | "discover"
+  | "settings";
 
 interface TabConfig {
   id: TabId;
@@ -152,6 +159,21 @@ function IconList(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+function IconChart(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      {...props}
+    >
+      <path d="M3 3v18h18" />
+      <path d="M7 16v-5M12 16V8M17 16v-8" />
+    </svg>
+  );
+}
+
 function IconDiscover(props: SVGProps<SVGSVGElement>) {
   return (
     <svg
@@ -182,13 +204,30 @@ function IconSettings(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-const TABS: TabConfig[] = [
+const BASE_TABS: TabConfig[] = [
   { id: "profile", label: "Profile", icon: IconUser },
   { id: "cover-letters", label: "Letters", icon: IconDocument },
   { id: "tracker", label: "Tracker", icon: IconList },
   { id: "discover", label: "Discover", icon: IconDiscover },
   { id: "settings", label: "Settings", icon: IconSettings },
 ];
+
+const ANALYTICS_TAB: TabConfig = {
+  id: "analytics",
+  label: "Analytics",
+  icon: IconChart,
+};
+
+function getVisibleTabs(applicationCount: number): TabConfig[] {
+  if (applicationCount <= 10) {
+    return BASE_TABS;
+  }
+
+  const tabs = [...BASE_TABS];
+  const trackerIndex = tabs.findIndex((tab) => tab.id === "tracker");
+  tabs.splice(trackerIndex + 1, 0, ANALYTICS_TAB);
+  return tabs;
+}
 
 interface TabPanelProps {
   tab: TabId;
@@ -218,6 +257,12 @@ function TabPanel({ tab, profileComplete, onGoToProfile }: TabPanelProps) {
       return (
         <ErrorBoundary>
           <Tracker />
+        </ErrorBoundary>
+      );
+    case "analytics":
+      return (
+        <ErrorBoundary>
+          <Analytics />
         </ErrorBoundary>
       );
     case "discover":
@@ -284,6 +329,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<TabId>("profile");
   const [profileComplete, setProfileComplete] = useState(false);
   const [onboardingComplete, setOnboardingComplete] = useState(true);
+  const [applicationCount, setApplicationCount] = useState(0);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [unknownDrafts, setUnknownDrafts] = useState<
     Record<string, UnknownFieldDraft>
@@ -307,16 +353,28 @@ export default function App() {
   const hasUnknownFields = unknownLabels.length > 0;
   const isWaitingForUser = formState?.state === "WAITING_FOR_USER";
 
+  const visibleTabs = useMemo(
+    () => getVisibleTabs(applicationCount),
+    [applicationCount],
+  );
+
   useEffect(() => {
     void Promise.all([getProfile(), getApplications(), getSettings()])
-      .then(([profile, , settings]) => {
+      .then(([profile, applications, settings]) => {
         setProfileComplete(isProfileComplete(profile));
         setOnboardingComplete(settings.onboardingComplete);
+        setApplicationCount(applications.length);
       })
       .finally(() => {
         setIsInitialLoading(false);
       });
   }, []);
+
+  useEffect(() => {
+    if (!visibleTabs.some((tab) => tab.id === activeTab)) {
+      setActiveTab("profile");
+    }
+  }, [activeTab, visibleTabs]);
 
   useEffect(() => {
     void chrome.storage.session.get("pendingPopupTab").then((result) => {
@@ -325,6 +383,7 @@ export default function App() {
         pendingTab === "profile" ||
         pendingTab === "cover-letters" ||
         pendingTab === "tracker" ||
+        pendingTab === "analytics" ||
         pendingTab === "discover" ||
         pendingTab === "settings"
       ) {
@@ -650,8 +709,10 @@ export default function App() {
       </main>
 
       <nav className="border-t border-gray-200 bg-gray-50">
-        <ul className="grid grid-cols-5">
-          {TABS.map((tab) => {
+        <ul
+          className={`grid ${visibleTabs.length === 6 ? "grid-cols-6" : "grid-cols-5"}`}
+        >
+          {visibleTabs.map((tab) => {
             const isActive = activeTab === tab.id;
             const Icon = tab.icon;
 

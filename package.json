@@ -16,11 +16,12 @@
     "fuse.js": "7.0.0",
     "pdfjs-dist": "4.8.69",
     "react": "18.3.1",
-    "react-dom": "18.3.1"
+    "react-dom": "18.3.1",
+    "recharts": "^3.8.1"
   },
   "devDependencies": {
-    "@playwright/test": "^1.49.1",
     "@crxjs/vite-plugin": "2.4.0",
+    "@playwright/test": "^1.49.1",
     "@types/chrome": "0.0.279",
     "@types/react": "18.3.12",
     "@types/react-dom": "18.3.1",

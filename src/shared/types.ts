@@ -158,6 +158,8 @@ export interface JobApplication {
   appliedAt: number;
   /** Current stage in the application pipeline. */
   status: ApplicationStatus;
+  /** Unix timestamp (ms) when status was last changed. */
+  statusUpdatedAt?: number;
   /** ID of the cover letter template used, if any. */
   coverLetterUsed?: string;
   /** Free-form notes about this application. */

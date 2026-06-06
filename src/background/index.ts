@@ -142,6 +142,32 @@ async function runMigration(): Promise<void> {
     });
   }
 
+  const applicationsStored = await chrome.storage.local.get('applications');
+  const applications = applicationsStored.applications as
+    | Array<{ status?: string; statusUpdatedAt?: number; appliedAt?: number }>
+    | undefined;
+
+  if (Array.isArray(applications) && applications.length > 0) {
+    let needsBackfill = false;
+    const backfilled = applications.map((app) => {
+      if (
+        app.status &&
+        app.status !== 'applied' &&
+        app.statusUpdatedAt === undefined &&
+        typeof app.appliedAt === 'number'
+      ) {
+        needsBackfill = true;
+        return { ...app, statusUpdatedAt: app.appliedAt };
+      }
+
+      return app;
+    });
+
+    if (needsBackfill) {
+      await chrome.storage.local.set({ applications: backfilled });
+    }
+  }
+
   console.log(`migration v${VERSION} complete`);
 }
 

@@ -38,6 +38,31 @@ test('shows all five navigation tabs', async () => {
   await expect(popup.getByRole('button', { name: 'Tracker' })).toBeVisible();
   await expect(popup.getByRole('button', { name: 'Discover' })).toBeVisible();
   await expect(popup.getByRole('button', { name: 'Settings' })).toBeVisible();
+  await expect(popup.getByRole('button', { name: 'Analytics' })).toHaveCount(0);
+});
+
+test('shows analytics tab when enough applications are logged', async () => {
+  const applications = Array.from({ length: 11 }, (_, index) => ({
+    id: `app-${index}`,
+    company: `Company ${index}`,
+    role: 'Software Engineer',
+    portal: 'linkedin',
+    url: `https://example.com/jobs/${index}`,
+    appliedAt: Date.now() - index * 86_400_000,
+    status: 'applied',
+  }));
+
+  await seedExtensionStorage(context, {
+    profile: E2E_TEST_PROFILE,
+    applications,
+  });
+  await popup.reload();
+  await popup.waitForLoadState('domcontentloaded');
+  await waitForPopupReady(popup);
+
+  await expect(popup.getByRole('button', { name: 'Analytics' })).toBeVisible();
+  await popup.getByRole('button', { name: 'Analytics' }).click();
+  await expect(popup.getByText('11', { exact: true }).first()).toBeVisible();
 });
 
 test('fills profile fields and persists after reload', async () => {
