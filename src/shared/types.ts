@@ -134,7 +134,7 @@ export interface CoverLetterTemplate {
   id: string;
   /** Human-readable template name (e.g. "Frontend roles", "Startup roles"). */
   name: string;
-  /** Cover letter body; supports {{company_name}}, {{job_title}}, {{your_name}} placeholders. */
+  /** Cover letter body; supports {{company_name}}, {{job_title}}, {{your_name}}, {{your_email}}, {{your_phone}}, {{current_role}}, {{years_exp}}, {{top_skills}}, {{notice_period}}, {{linkedin}}, {{today_date}} placeholders. */
   body: string;
   /** Unix timestamp (ms) when the template was created. */
   createdAt: number;
