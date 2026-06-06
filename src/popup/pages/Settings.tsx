@@ -103,7 +103,9 @@ function isAppSettings(value: unknown): value is AppSettings {
     typeof value.highlightUnknownFields === 'boolean' &&
     (value.defaultCoverLetterId === null || typeof value.defaultCoverLetterId === 'string') &&
     isTheme(value.theme) &&
-    (value.debugMode === undefined || typeof value.debugMode === 'boolean')
+    (value.debugMode === undefined || typeof value.debugMode === 'boolean') &&
+    (value.onboardingComplete === undefined ||
+      typeof value.onboardingComplete === 'boolean')
   );
 }
 

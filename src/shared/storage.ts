@@ -26,6 +26,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultCoverLetterId: null,
   theme: 'system',
   debugMode: false,
+  onboardingComplete: false,
 };
 
 export const DEFAULT_PROFILE: UserProfile = {

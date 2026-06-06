@@ -9,11 +9,11 @@ import {
   type SVGProps,
 } from "react";
 import ErrorBoundary from "@/popup/components/ErrorBoundary";
-import PageSkeleton from "@/popup/components/PageSkeleton";
 import ProfileEmptyState from "@/popup/components/ProfileEmptyState";
 import Spinner from "@/popup/components/Spinner";
 import { useExtension } from "@/popup/hooks/useExtension";
-import { getApplications, getProfile } from "@/shared/storage";
+import Onboarding from "@/popup/pages/Onboarding";
+import { getApplications, getProfile, getSettings } from "@/shared/storage";
 import type { UserProfile } from "@/shared/types";
 
 const Profile = lazy(() => import("./pages/Profile"));
@@ -181,6 +181,7 @@ export default function App() {
   const autofillButtonRef = useRef<HTMLButtonElement>(null);
   const [activeTab, setActiveTab] = useState<TabId>("profile");
   const [profileComplete, setProfileComplete] = useState(false);
+  const [onboardingComplete, setOnboardingComplete] = useState(true);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [unknownDrafts, setUnknownDrafts] = useState<
     Record<string, UnknownFieldDraft>
@@ -202,9 +203,10 @@ export default function App() {
   const isWaitingForUser = formState?.state === "WAITING_FOR_USER";
 
   useEffect(() => {
-    void Promise.all([getProfile(), getApplications()])
-      .then(([profile]) => {
+    void Promise.all([getProfile(), getApplications(), getSettings()])
+      .then(([profile, , settings]) => {
         setProfileComplete(isProfileComplete(profile));
+        setOnboardingComplete(settings.onboardingComplete);
       })
       .finally(() => {
         setIsInitialLoading(false);
@@ -318,6 +320,27 @@ export default function App() {
       [label]: { ...current[label], ...updates },
     }));
   };
+
+  if (isInitialLoading) {
+    return (
+      <div className="flex h-[520px] w-[380px] min-w-[360px] items-center justify-center bg-white">
+        <Spinner size="md" className="text-blue-600" />
+      </div>
+    );
+  }
+
+  if (!onboardingComplete) {
+    return (
+      <Onboarding
+        onComplete={() => {
+          setOnboardingComplete(true);
+          void getProfile().then((profile) => {
+            setProfileComplete(isProfileComplete(profile));
+          });
+        }}
+      />
+    );
+  }
 
   return (
     <div className="flex h-[520px] w-[380px] min-w-[360px] flex-col bg-white text-gray-900">
@@ -450,23 +473,19 @@ export default function App() {
       ) : null}
 
       <main className="flex-1 overflow-y-auto">
-        {isInitialLoading ? (
-          <PageSkeleton />
-        ) : (
-          <Suspense
-            fallback={
-              <div className="flex h-full items-center justify-center py-12">
-                <Spinner size="md" className="text-blue-600" />
-              </div>
-            }
-          >
-            <TabPanel
-              tab={activeTab}
-              profileComplete={profileComplete}
-              onGoToProfile={() => setActiveTab("profile")}
-            />
-          </Suspense>
-        )}
+        <Suspense
+          fallback={
+            <div className="flex h-full items-center justify-center py-12">
+              <Spinner size="md" className="text-blue-600" />
+            </div>
+          }
+        >
+          <TabPanel
+            tab={activeTab}
+            profileComplete={profileComplete}
+            onGoToProfile={() => setActiveTab("profile")}
+          />
+        </Suspense>
       </main>
 
       <nav className="border-t border-gray-200 bg-gray-50">

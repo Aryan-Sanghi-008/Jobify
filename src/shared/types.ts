@@ -341,6 +341,8 @@ export interface AppSettings {
   theme: Theme;
   /** Enable verbose debug logging (no PII). */
   debugMode: boolean;
+  /** Whether the first-run onboarding flow has been completed. */
+  onboardingComplete: boolean;
 }
 
 /** A user-taught field mapping with usage metadata. */

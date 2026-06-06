@@ -10,6 +10,7 @@ import {
   getProfile,
   getSettings,
   hasRecentApplication,
+  saveSettings,
   learnField,
   logApplication,
   saveProfile,
@@ -48,6 +49,13 @@ async function initializeStorage(): Promise<void> {
 }
 
 async function runMigration(): Promise<void> {
+  const stored = await chrome.storage.local.get('settings');
+  const settings = stored.settings as Record<string, unknown> | undefined;
+
+  if (settings && !('onboardingComplete' in settings)) {
+    await saveSettings({ onboardingComplete: true });
+  }
+
   console.log(`migration v${VERSION} complete`);
 }
 
