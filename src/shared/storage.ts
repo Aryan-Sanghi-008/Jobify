@@ -146,6 +146,33 @@ export function flattenProfile(profile: UserProfile): FlatProfile {
   };
 }
 
+export interface AutofillData {
+  profile: UserProfile | null;
+  settings: AppSettings;
+  learnedFields: Record<string, LearnedField>;
+}
+
+export async function getAutofillData(): Promise<AutofillData> {
+  try {
+    const result = await chrome.storage.local.get([
+      'profile',
+      'settings',
+      'learnedFields',
+    ]);
+
+    return {
+      profile: (result.profile as UserProfile | null | undefined) ?? null,
+      settings: { ...DEFAULT_SETTINGS, ...(result.settings as AppSettings | undefined) },
+      learnedFields: normalizeLearnedFieldsStorage(
+        result.learnedFields as Record<string, unknown> | undefined,
+      ),
+    };
+  } catch (error) {
+    logStorageError('getAutofillData', error);
+    throw error;
+  }
+}
+
 export async function getProfile(): Promise<UserProfile | null> {
   try {
     const profile = await storageGet('profile');

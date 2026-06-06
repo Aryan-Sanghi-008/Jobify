@@ -1,6 +1,15 @@
 import { VERSION } from '@/shared/constants';
+import { selectorRegistry } from '@/shared/selectorRegistry';
 import type { FormField, FormFieldType } from '@/shared/types';
-import { isElementVisible, normalizeLabel } from '@/shared/utils';
+import { detectPortal, isElementVisible, normalizeLabel } from '@/shared/utils';
+
+export const MAX_SCAN_FIELDS = 50;
+
+export interface ScanPageFieldsResult {
+  fields: FormField[];
+  excessiveFieldCount: boolean;
+  totalCandidates: number;
+}
 
 const COVER_LETTER_LABEL_PATTERNS = [
   'cover letter',
@@ -78,6 +87,14 @@ function getTrimmedText(value: string | null | undefined): string {
   return value?.replace(/\s+/g, ' ').trim() ?? '';
 }
 
+function escapeCssIdent(value: string): string {
+  if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
+    return CSS.escape(value);
+  }
+
+  return value.replace(/[^a-zA-Z0-9_-]/g, '\\$&');
+}
+
 function getLabelTextFromElement(labelElement: HTMLElement): string {
   const clone = labelElement.cloneNode(true) as HTMLElement;
   clone
@@ -125,7 +142,7 @@ function getParentLabelText(element: HTMLElement): string {
 
   const clone = parent.cloneNode(true) as HTMLElement;
   const target = clone.querySelector(
-    `#${CSS.escape(element.id)}`,
+    `#${escapeCssIdent(element.id)}`,
   ) as HTMLElement | null;
 
   if (target) {
@@ -139,7 +156,9 @@ function getParentLabelText(element: HTMLElement): string {
 
 function extractLabel(element: HTMLElement): string {
   if (element.id) {
-    const associatedLabels = safeQueryAll(`label[for="${CSS.escape(element.id)}"]`);
+    const associatedLabels = safeQueryAll(
+      `label[for="${escapeCssIdent(element.id)}"]`,
+    );
     for (const label of associatedLabels) {
       const text = getLabelTextFromElement(label);
       if (text) {
@@ -317,6 +336,20 @@ function sortByDomOrder(fields: FormField[]): FormField[] {
   });
 }
 
+function resolveScanRoot(explicitRoot?: ParentNode): ParentNode {
+  if (explicitRoot !== undefined && explicitRoot !== document) {
+    return explicitRoot;
+  }
+
+  const portal = detectPortal(window.location.href);
+  if (portal === 'generic') {
+    return document;
+  }
+
+  const container = selectorRegistry.trySelectors(portal, 'formContainer');
+  return container ?? document;
+}
+
 function collectCandidateElements(root: ParentNode = document): HTMLElement[] {
   if (typeof document === 'undefined') {
     return [];
@@ -331,6 +364,25 @@ function collectCandidateElements(root: ParentNode = document): HTMLElement[] {
   }
 
   return Array.from(elements);
+}
+
+function scanPageFieldsInternal(root?: ParentNode): ScanPageFieldsResult {
+  const scanRoot = resolveScanRoot(root);
+  const candidates = collectCandidateElements(scanRoot);
+  const excessiveFieldCount = candidates.length > MAX_SCAN_FIELDS;
+  const limitedCandidates = excessiveFieldCount
+    ? candidates.slice(0, MAX_SCAN_FIELDS)
+    : candidates;
+
+  const fields = limitedCandidates
+    .map((element) => buildFormField(element))
+    .filter((field): field is FormField => field !== null);
+
+  return {
+    fields: sortByDomOrder(fields),
+    excessiveFieldCount,
+    totalCandidates: candidates.length,
+  };
 }
 
 function getElementButtonText(element: HTMLElement): string {
@@ -380,25 +432,32 @@ function findActionButton(
 /**
  * Scans the current page for unfilled, visible form fields.
  */
-export function scanPageFields(root: ParentNode = document): FormField[] {
+export function scanPageFieldsWithMeta(root?: ParentNode): ScanPageFieldsResult {
   try {
-    const candidates = collectCandidateElements(root);
-    const fields = candidates
-      .map((element) => buildFormField(element))
-      .filter((field): field is FormField => field !== null);
-
-    return sortByDomOrder(fields);
+    return scanPageFieldsInternal(root);
   } catch {
-    return [];
+    return {
+      fields: [],
+      excessiveFieldCount: false,
+      totalCandidates: 0,
+    };
   }
+}
+
+/**
+ * Scans the current page for unfilled, visible form fields.
+ */
+export function scanPageFields(root?: ParentNode): FormField[] {
+  return scanPageFieldsWithMeta(root).fields;
 }
 
 /**
  * Finds a visible multi-page form "next" action button.
  */
-export function scanForNextButton(root: ParentNode = document): HTMLButtonElement | null {
+export function scanForNextButton(root?: ParentNode): HTMLButtonElement | null {
   try {
-    return findActionButton(NEXT_BUTTON_PATTERNS, root);
+    const scanRoot = resolveScanRoot(root);
+    return findActionButton(NEXT_BUTTON_PATTERNS, scanRoot);
   } catch {
     return null;
   }

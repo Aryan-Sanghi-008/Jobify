@@ -27,6 +27,10 @@ const CONFIDENCE_THRESHOLD = 0.5;
 
 const FLAT_PROFILE_KEYS = Object.keys(FIELD_LABEL_MAP) as Array<keyof FlatProfile>;
 
+let cachedFuseIndex: Fuse<LabelIndexEntry> | null = null;
+let cachedLearnedFieldsVersion: string | null = null;
+let cachedLearnedFuse: Fuse<LearnedFuseEntry> | null = null;
+
 function isFlatProfileKey(key: string): key is keyof FlatProfile {
   return FLAT_PROFILE_KEYS.includes(key as keyof FlatProfile);
 }
@@ -50,6 +54,56 @@ function buildFuseIndex(): Fuse<LabelIndexEntry> {
     includeScore: true,
     ignoreLocation: true,
   });
+}
+
+function getFuseIndex(): Fuse<LabelIndexEntry> {
+  if (!cachedFuseIndex) {
+    cachedFuseIndex = buildFuseIndex();
+  }
+
+  return cachedFuseIndex;
+}
+
+function computeLearnedFieldsVersion(
+  learnedFields: Record<string, LearnedField>,
+): string {
+  const serialized = Object.entries(learnedFields)
+    .map(
+      ([key, entry]) =>
+        `${key}:${entry.normalizedLabel}:${entry.value}:${entry.learnedAt}:${entry.timesUsed}`,
+    )
+    .sort()
+    .join('|');
+
+  return hashString(serialized);
+}
+
+function getLearnedFuseIndex(
+  learnedFields: Record<string, LearnedField>,
+): Fuse<LearnedFuseEntry> {
+  const version = computeLearnedFieldsVersion(learnedFields);
+
+  if (cachedLearnedFuse && cachedLearnedFieldsVersion === version) {
+    return cachedLearnedFuse;
+  }
+
+  const uniqueLearned = Object.values(learnedFields).filter(
+    (entry, index, array) =>
+      array.findIndex(
+        (other) =>
+          other.normalizedLabel === entry.normalizedLabel &&
+          other.value === entry.value,
+      ) === index,
+  );
+
+  cachedLearnedFieldsVersion = version;
+  cachedLearnedFuse = buildLearnedFuseIndex(uniqueLearned);
+  return cachedLearnedFuse;
+}
+
+export function invalidateLearnedFieldsCache(): void {
+  cachedLearnedFieldsVersion = null;
+  cachedLearnedFuse = null;
 }
 
 function buildLearnedFuseIndex(entries: LearnedField[]): Fuse<LearnedFuseEntry> {
@@ -307,16 +361,8 @@ export function matchFields(
   learnedFields: Record<string, LearnedField>,
 ): FormField[] {
   void flattenProfile(profile);
-  const fuse = buildFuseIndex();
-  const uniqueLearned = Object.values(learnedFields).filter(
-    (entry, index, array) =>
-      array.findIndex(
-        (other) =>
-          other.normalizedLabel === entry.normalizedLabel &&
-          other.value === entry.value,
-      ) === index,
-  );
-  const learnedFuse = buildLearnedFuseIndex(uniqueLearned);
+  const fuse = getFuseIndex();
+  const learnedFuse = getLearnedFuseIndex(learnedFields);
 
   return fields.map((field) =>
     matchSingleField(field, fuse, learnedFuse, learnedFields),

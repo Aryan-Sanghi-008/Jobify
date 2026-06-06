@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { JobApplication } from '@/shared/types';
 import {
+  DEFAULT_PROFILE,
+  getAutofillData,
   hasRecentApplication,
   normalizeApplicationKey,
 } from '@/shared/storage';
@@ -21,6 +23,58 @@ function makeApplication(
     ...overrides,
   };
 }
+
+describe('getAutofillData', () => {
+  beforeEach(() => {
+    Object.defineProperty(globalThis, 'chrome', {
+      configurable: true,
+      value: {
+        storage: {
+          local: {
+            get: vi.fn(async (keys: string | string[]) => {
+              const requestedKeys = Array.isArray(keys) ? keys : [keys];
+
+              const result: Record<string, unknown> = {};
+              for (const key of requestedKeys) {
+                if (key === 'profile') {
+                  result.profile = DEFAULT_PROFILE;
+                } else if (key === 'settings') {
+                  result.settings = { debugMode: true };
+                } else if (key === 'learnedFields') {
+                  result.learnedFields = {
+                    abc123: {
+                      value: 'fullName',
+                      normalizedLabel: 'legal name',
+                      learnedAt: 1,
+                      timesUsed: 0,
+                      sites: [],
+                    },
+                  };
+                }
+              }
+
+              return result;
+            }),
+            set: vi.fn(async () => undefined),
+          },
+        },
+      },
+    });
+  });
+
+  it('reads profile, settings, and learnedFields in one storage call', async () => {
+    const data = await getAutofillData();
+
+    expect(chrome.storage.local.get).toHaveBeenCalledWith([
+      'profile',
+      'settings',
+      'learnedFields',
+    ]);
+    expect(data.profile).toEqual(DEFAULT_PROFILE);
+    expect(data.settings.debugMode).toBe(true);
+    expect(data.learnedFields.abc123?.value).toBe('fullName');
+  });
+});
 
 describe('normalizeApplicationKey', () => {
   it('normalizes company and role for deduplication', () => {

@@ -1,6 +1,7 @@
-import { scanPageFields } from '@/content/scanner';
+import { scanPageFieldsWithMeta } from '@/content/scanner';
 import { Logger } from '@/shared/logger';
 import type { FormField } from '@/shared/types';
+import { detectPortal } from '@/shared/utils';
 
 const DEBOUNCE_MS = 300;
 
@@ -63,9 +64,13 @@ function hasMeaningfulFieldChange(
   return !setsAreEqual(previous, current);
 }
 
+function hasLeftJobPage(): boolean {
+  return detectPortal(location.href) === 'generic';
+}
+
 function safeScanPageFields(): FormField[] {
   try {
-    return scanPageFields();
+    return scanPageFieldsWithMeta().fields;
   } catch (error) {
     logObserver(
       `scan failed: ${error instanceof Error ? error.message : 'unknown error'}`,
@@ -189,6 +194,12 @@ export class FormObserver {
   }
 
   private handleNavigation(): void {
+    if (hasLeftJobPage()) {
+      logObserver('left job page — stopping observer');
+      this.stop();
+      return;
+    }
+
     this.scheduleCheck();
   }
 
@@ -231,6 +242,12 @@ export class FormObserver {
 
   private checkForChanges(): void {
     if (!this.active || this.completionFired) {
+      return;
+    }
+
+    if (hasLeftJobPage()) {
+      logObserver('left job page — stopping observer');
+      this.stop();
       return;
     }
 

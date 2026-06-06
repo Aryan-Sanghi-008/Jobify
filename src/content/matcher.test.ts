@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   applyConfidenceThreshold,
   getProfileValue,
+  invalidateLearnedFieldsCache,
   matchFields,
 } from '@/content/matcher';
 import { DEFAULT_PROFILE, flattenProfile } from '@/shared/storage';
@@ -108,6 +109,18 @@ describe('matchFields', () => {
     expect(matched.profileKey).toBe('fullName');
     expect(matched.unknown).toBe(false);
     expect(matched.confidence).toBeGreaterThanOrEqual(0.5);
+  });
+
+  it('uses updated learned fields after cache invalidation', () => {
+    const label = 'Department Code';
+    const initial = makeLearnedField(normalizeLabel(label), 'email');
+    const [firstMatch] = matchFields([makeField(label)], testProfile, initial);
+    expect(firstMatch.profileKey).toBe('email');
+
+    invalidateLearnedFieldsCache();
+    const updated = makeLearnedField(normalizeLabel(label), 'fullName');
+    const [secondMatch] = matchFields([makeField(label)], testProfile, updated);
+    expect(secondMatch.profileKey).toBe('fullName');
   });
 
   it('treats matches below confidence threshold as unknown', () => {

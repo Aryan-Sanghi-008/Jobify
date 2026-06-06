@@ -1,12 +1,5 @@
 import { AutoLogger } from '@/content/autoLogger';
-import { fillFieldWithValue, fillFields } from '@/content/filler';
-import { FormStateMachine } from '@/content/formStateMachine';
-import { matchFields } from '@/content/matcher';
-import {
-  scanForCoverLetterField,
-  scanForNextButton,
-  scanPageFields,
-} from '@/content/scanner';
+import type { FormStateMachine } from '@/content/formStateMachine';
 import { Logger } from '@/shared/logger';
 import {
   assertRuntimeValid,
@@ -15,10 +8,9 @@ import {
 } from '@/shared/security';
 import {
   flattenProfile,
+  getAutofillData,
   getCoverLetters,
-  getLearnedFields,
   getProfile,
-  getSettings,
   learnField,
 } from '@/shared/storage';
 import type {
@@ -47,10 +39,25 @@ import {
   simulateUserInput,
 } from '@/shared/utils';
 
+const EXCESSIVE_FIELDS_WARNING =
+  'This page has an unusual number of fields — autofill may be slow.';
+
 const triggerAutofillLimiter = createRateLimiter({
   maxRequests: 3,
   windowMs: 30_000,
 });
+
+interface AutofillModules {
+  scanPageFields: typeof import('@/content/scanner').scanPageFields;
+  scanPageFieldsWithMeta: typeof import('@/content/scanner').scanPageFieldsWithMeta;
+  scanForNextButton: typeof import('@/content/scanner').scanForNextButton;
+  scanForCoverLetterField: typeof import('@/content/scanner').scanForCoverLetterField;
+  matchFields: typeof import('@/content/matcher').matchFields;
+  fillFields: typeof import('@/content/filler').fillFields;
+  fillFieldWithValue: typeof import('@/content/filler').fillFieldWithValue;
+  invalidateLearnedFieldsCache: typeof import('@/content/matcher').invalidateLearnedFieldsCache;
+  FormStateMachine: typeof import('@/content/formStateMachine').FormStateMachine;
+}
 
 (function initJobAutofill(): void {
   const globalWindow = window as Window & {
@@ -68,6 +75,36 @@ const triggerAutofillLimiter = createRateLimiter({
   let lastSettings: AppSettings | null = null;
   let lastLearnedFields: Record<string, LearnedField> = {};
   let lastCoverLetterTemplateId: string | undefined;
+  let autofillModules: AutofillModules | null = null;
+  let formStateMachine: FormStateMachine | null = null;
+  let excessiveFieldsWarned = false;
+
+  async function loadAutofillModules(): Promise<AutofillModules> {
+    if (autofillModules) {
+      return autofillModules;
+    }
+
+    const [scanner, filler, matcher, formStateMachineModule] = await Promise.all([
+      import('@/content/scanner'),
+      import('@/content/filler'),
+      import('@/content/matcher'),
+      import('@/content/formStateMachine'),
+    ]);
+
+    autofillModules = {
+      scanPageFields: scanner.scanPageFields,
+      scanPageFieldsWithMeta: scanner.scanPageFieldsWithMeta,
+      scanForNextButton: scanner.scanForNextButton,
+      scanForCoverLetterField: scanner.scanForCoverLetterField,
+      matchFields: matcher.matchFields,
+      fillFields: filler.fillFields,
+      fillFieldWithValue: filler.fillFieldWithValue,
+      invalidateLearnedFieldsCache: matcher.invalidateLearnedFieldsCache,
+      FormStateMachine: formStateMachineModule.FormStateMachine,
+    };
+
+    return autofillModules;
+  }
 
   function broadcastFormState(payload: FormStatePayload): void {
     try {
@@ -81,6 +118,45 @@ const triggerAutofillLimiter = createRateLimiter({
     }
   }
 
+  async function ensureFormStateMachine(): Promise<FormStateMachine> {
+    const modules = await loadAutofillModules();
+
+    if (!formStateMachine) {
+      formStateMachine = new modules.FormStateMachine({
+        scanFields: () => {
+          const scanResult = modules.scanPageFieldsWithMeta();
+
+          if (scanResult.excessiveFieldCount && !excessiveFieldsWarned) {
+            excessiveFieldsWarned = true;
+            showUserToast(EXCESSIVE_FIELDS_WARNING);
+          }
+
+          return scanResult.fields;
+        },
+        matchAndFill: (fields: FormField[]) => {
+          if (!lastProfile || !lastFlatProfile || !lastSettings) {
+            throw new Error('Autofill context is not initialized');
+          }
+
+          const matchedFields = modules.matchFields(
+            fields,
+            lastProfile,
+            lastLearnedFields,
+          );
+          return modules.fillFields(matchedFields, lastFlatProfile, lastSettings);
+        },
+        findNextButton: () => modules.scanForNextButton(),
+        clickNext: (button: HTMLButtonElement) => {
+          button.click();
+        },
+        notifyComplete: () => {},
+        broadcastState: broadcastFormState,
+      });
+    }
+
+    return formStateMachine;
+  }
+
   const autoLogger = new AutoLogger({
     getCoverLetterUsed: () => lastCoverLetterTemplateId,
     extractJobInfo: () => ({
@@ -89,24 +165,6 @@ const triggerAutofillLimiter = createRateLimiter({
       portal: detectPortal(window.location.href),
       url: window.location.href,
     }),
-  });
-
-  const formStateMachine = new FormStateMachine({
-    scanFields: () => scanPageFields(),
-    matchAndFill: (fields: FormField[]) => {
-      if (!lastProfile || !lastFlatProfile || !lastSettings) {
-        throw new Error('Autofill context is not initialized');
-      }
-
-      const matchedFields = matchFields(fields, lastProfile, lastLearnedFields);
-      return fillFields(matchedFields, lastFlatProfile, lastSettings);
-    },
-    findNextButton: () => scanForNextButton(),
-    clickNext: (button: HTMLButtonElement) => {
-      button.click();
-    },
-    notifyComplete: () => {},
-    broadcastState: broadcastFormState,
   });
 
   function showUserToast(message: string): void {
@@ -131,6 +189,12 @@ const triggerAutofillLimiter = createRateLimiter({
     window.setTimeout(() => toast.remove(), 3000);
   }
 
+  function deactivateAutofill(): void {
+    formStateMachine?.stop();
+    formStateMachine = null;
+    excessiveFieldsWarned = false;
+  }
+
   async function handleTriggerAutofill(): Promise<TriggerAutofillResponse> {
     assertRuntimeValid();
 
@@ -144,11 +208,7 @@ const triggerAutofillLimiter = createRateLimiter({
       };
     }
 
-    const [profile, settings, learnedFields] = await Promise.all([
-      getProfile(),
-      getSettings(),
-      getLearnedFields(),
-    ]);
+    const { profile, settings, learnedFields } = await getAutofillData();
 
     if (profile === null || profile.personal.email.trim() === '') {
       return { type: 'PROFILE_INCOMPLETE' };
@@ -158,19 +218,22 @@ const triggerAutofillLimiter = createRateLimiter({
     lastSettings = settings;
     lastLearnedFields = learnedFields;
     lastFlatProfile = flattenProfile(profile);
+    excessiveFieldsWarned = false;
 
-    formStateMachine.start(profile, settings);
+    const fsm = await ensureFormStateMachine();
+    fsm.start(profile, settings);
 
     return { type: 'AUTOFILL_STARTED' };
   }
 
-  function handleContinueAutofill(): { success: true } {
-    formStateMachine.continue();
+  async function handleContinueAutofill(): Promise<{ success: true }> {
+    const fsm = await ensureFormStateMachine();
+    fsm.continue();
     return { success: true };
   }
 
   function handleStopAutofill(): { success: true } {
-    formStateMachine.stop();
+    deactivateAutofill();
     return { success: true };
   }
 
@@ -179,6 +242,7 @@ const triggerAutofillLimiter = createRateLimiter({
   ): Promise<FillCoverLetterResponse> {
     assertRuntimeValid();
 
+    const { scanForCoverLetterField } = await loadAutofillModules();
     const field = scanForCoverLetterField();
 
     if (!(field instanceof HTMLTextAreaElement)) {
@@ -187,7 +251,7 @@ const triggerAutofillLimiter = createRateLimiter({
 
     const [profile, settings, coverLetters] = await Promise.all([
       getProfile(),
-      getSettings(),
+      getAutofillData().then((data) => data.settings),
       getCoverLetters(),
     ]);
 
@@ -231,12 +295,19 @@ const triggerAutofillLimiter = createRateLimiter({
       message.normalizedLabel,
       window.location.href,
     );
-    lastLearnedFields = await getLearnedFields();
+
+    const { learnedFields } = await getAutofillData();
+    lastLearnedFields = learnedFields;
+
+    const { invalidateLearnedFieldsCache } = await loadAutofillModules();
+    invalidateLearnedFieldsCache();
+
     showUserToast(`Saved mapping for "${message.profileKey}".`);
     return { success: true };
   }
 
-  function findFieldByLabel(label: string): FormField | null {
+  async function findFieldByLabel(label: string): Promise<FormField | null> {
+    const { scanPageFields } = await loadAutofillModules();
     const normalizedTarget = normalizeLabel(label);
     const fields = scanPageFields();
 
@@ -246,10 +317,13 @@ const triggerAutofillLimiter = createRateLimiter({
     );
   }
 
-  function handleFillSingleField(
+  async function handleFillSingleField(
     message: FillSingleFieldMessage,
-  ): FillSingleFieldResponse {
-    const field = findFieldByLabel(message.label);
+  ): Promise<FillSingleFieldResponse> {
+    const [field, { fillFieldWithValue }] = await Promise.all([
+      findFieldByLabel(message.label),
+      loadAutofillModules(),
+    ]);
 
     if (!field) {
       return { success: false, field_found: false };
@@ -259,8 +333,9 @@ const triggerAutofillLimiter = createRateLimiter({
     return { success, field_found: true };
   }
 
-  function handleCheckFormProgress(): { success: true } {
-    formStateMachine.checkNow();
+  async function handleCheckFormProgress(): Promise<{ success: true }> {
+    const fsm = await ensureFormStateMachine();
+    fsm.checkNow();
     return { success: true };
   }
 
@@ -362,6 +437,10 @@ const triggerAutofillLimiter = createRateLimiter({
     if (typeof nextSettings?.debugMode === 'boolean') {
       Logger.setDebugMode(nextSettings.debugMode);
     }
+  });
+
+  window.addEventListener('pagehide', () => {
+    deactivateAutofill();
   });
 
   void initialize();
