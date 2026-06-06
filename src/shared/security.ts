@@ -22,6 +22,9 @@ const MESSAGE_TYPES: MessageType[] = [
   'FORM_STATE_CHANGED',
   'GENERATE_COVER_LETTER',
   'TEST_AI_CONNECTION',
+  'GET_DISCOVERED_JOBS',
+  'FETCH_DISCOVERED_JOBS',
+  'AUTO_APPLY_JOB',
 ];
 
 const CONTENT_MESSAGE_TYPES: ContentMessageType[] = [
@@ -59,6 +62,10 @@ const FORBIDDEN_STORAGE_KEY_PATTERNS = [
 ];
 
 const ALLOWED_SETTINGS_CREDENTIAL_KEYS = new Set(['apiKey', 'aiProvider']);
+const ALLOWED_JOB_PREFERENCES_CREDENTIAL_KEYS = new Set([
+  'adzunaAppId',
+  'adzunaAppKey',
+]);
 
 const ANTHROPIC_API_KEY_PATTERN = /^sk-ant-[a-zA-Z0-9_-]{20,}$/;
 const OPENAI_API_KEY_PATTERN = /^sk-(?!ant-)[a-zA-Z0-9_-]{20,}$/;
@@ -121,6 +128,13 @@ function sanitizeUnknown(value: unknown, parentKey = ''): unknown {
 
 export function isForbiddenStorageKey(key: string, parentKey = ''): boolean {
   if (parentKey === 'settings' && ALLOWED_SETTINGS_CREDENTIAL_KEYS.has(key)) {
+    return false;
+  }
+
+  if (
+    parentKey === 'jobPreferences' &&
+    ALLOWED_JOB_PREFERENCES_CREDENTIAL_KEYS.has(key)
+  ) {
     return false;
   }
 
@@ -413,6 +427,11 @@ export function validateMessage(message: unknown): message is ExtensionMessage {
         typeof message.apiKey === 'string' &&
         (message.provider === 'anthropic' || message.provider === 'openai')
       );
+    case 'GET_DISCOVERED_JOBS':
+    case 'FETCH_DISCOVERED_JOBS':
+      return true;
+    case 'AUTO_APPLY_JOB':
+      return typeof message.url === 'string' && URL_PATTERN.test(message.url);
     default:
       return false;
   }

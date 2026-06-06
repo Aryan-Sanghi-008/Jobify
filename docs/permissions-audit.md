@@ -40,6 +40,12 @@ Reference for Chrome Web Store review. `manifest.json` is strict JSON and cannot
 
 **Used in:** `src/background/index.ts` (`setupContextMenus`, `chrome.contextMenus.onClicked`).
 
+### `alarms`
+
+**Why:** Periodically fetch matching jobs from public feeds (RemoteOK, Arbeitnow, optional Adzuna) every 4 hours when Job Preferences include a desired role.
+
+**Used in:** `src/background/index.ts` (`setupJobFetchAlarm`, `chrome.alarms.onAlarm`).
+
 ## Host permissions
 
 ### `https://*/*`
@@ -49,6 +55,24 @@ Reference for Chrome Web Store review. `manifest.json` is strict JSON and cannot
 ### `http://*/*`
 
 **Why:** A small number of application forms still use HTTP. Also used by local E2E test fixtures (`http://localhost:4173`). Consider removing before a narrow-permission store submission if HTTP support is not required.
+
+### `https://remoteok.com/*`
+
+**Why:** Fetch public remote job listings for the Discover tab (RemoteOK JSON API).
+
+**Used in:** `src/background/jobFetcher.ts`.
+
+### `https://www.arbeitnow.com/*`
+
+**Why:** Fetch public Europe/remote job listings for the Discover tab (Arbeitnow job board API).
+
+**Used in:** `src/background/jobFetcher.ts`.
+
+### `https://api.adzuna.com/*`
+
+**Why:** Optional Discover feed when the user configures a free Adzuna App ID and App Key in Job Preferences.
+
+**Used in:** `src/background/jobFetcher.ts`.
 
 ## Content scripts
 

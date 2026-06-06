@@ -10,14 +10,33 @@ import {
 import type {
   AppSettings,
   CoverLetterTemplate,
+  DiscoveredJob,
+  DiscoveredJobsMeta,
   FlatProfile,
   JobApplication,
+  JobPreferences,
   LearnedField,
   SerializableFillResult,
   StorageSchema,
   UserProfile,
 } from './types';
 import { hashString } from './utils';
+
+export const DISCOVERED_JOBS_CAP = 100;
+
+export const DEFAULT_JOB_PREFERENCES: JobPreferences = {
+  desiredRole: '',
+  preferredLocations: [],
+  minSalary: null,
+  adzunaAppId: null,
+  adzunaAppKey: null,
+  adzunaCountry: 'gb',
+};
+
+export const DEFAULT_DISCOVERED_JOBS_META: DiscoveredJobsMeta = {
+  lastFetchedAt: null,
+  lastError: null,
+};
 
 export const DEFAULT_SETTINGS: AppSettings = {
   autoFillOnLoad: false,
@@ -601,6 +620,85 @@ export async function clearAllData(): Promise<void> {
     await chrome.storage.local.clear();
   } catch (error) {
     logStorageError('clearAllData', error);
+    throw error;
+  }
+}
+
+export async function getJobPreferences(): Promise<JobPreferences> {
+  try {
+    const preferences = await storageGet('jobPreferences');
+    return { ...DEFAULT_JOB_PREFERENCES, ...preferences };
+  } catch (error) {
+    logStorageError('getJobPreferences', error);
+    throw error;
+  }
+}
+
+export async function saveJobPreferences(
+  preferences: Partial<JobPreferences>,
+): Promise<void> {
+  try {
+    const current = await getJobPreferences();
+    await storageSet({ jobPreferences: { ...current, ...preferences } });
+  } catch (error) {
+    logStorageError('saveJobPreferences', error);
+    throw error;
+  }
+}
+
+export async function getDiscoveredJobs(): Promise<DiscoveredJob[]> {
+  try {
+    const jobs = await storageGet('discoveredJobs');
+    return jobs ?? [];
+  } catch (error) {
+    logStorageError('getDiscoveredJobs', error);
+    throw error;
+  }
+}
+
+export async function getDiscoveredJobsMeta(): Promise<DiscoveredJobsMeta> {
+  try {
+    const meta = await storageGet('discoveredJobsMeta');
+    return { ...DEFAULT_DISCOVERED_JOBS_META, ...meta };
+  } catch (error) {
+    logStorageError('getDiscoveredJobsMeta', error);
+    throw error;
+  }
+}
+
+export async function upsertDiscoveredJobs(incoming: DiscoveredJob[]): Promise<number> {
+  try {
+    const existing = await getDiscoveredJobs();
+    const byId = new Map<string, DiscoveredJob>();
+
+    for (const job of existing) {
+      byId.set(job.id, job);
+    }
+
+    for (const job of incoming) {
+      byId.set(job.id, job);
+    }
+
+    const merged = Array.from(byId.values())
+      .sort((left, right) => right.fetchedAt - left.fetchedAt)
+      .slice(0, DISCOVERED_JOBS_CAP);
+
+    await storageSet({ discoveredJobs: merged });
+    return merged.length;
+  } catch (error) {
+    logStorageError('upsertDiscoveredJobs', error);
+    throw error;
+  }
+}
+
+export async function updateDiscoveredJobsMeta(
+  meta: Partial<DiscoveredJobsMeta>,
+): Promise<void> {
+  try {
+    const current = await getDiscoveredJobsMeta();
+    await storageSet({ discoveredJobsMeta: { ...current, ...meta } });
+  } catch (error) {
+    logStorageError('updateDiscoveredJobsMeta', error);
     throw error;
   }
 }

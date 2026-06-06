@@ -1,3 +1,4 @@
+import { fetchMatchingJobs } from '@/background/jobFetcher';
 import { generateCoverLetter, testAiConnection } from '@/shared/aiEngine';
 import { VERSION } from '@/shared/constants';
 import { Logger } from '@/shared/logger';
@@ -9,7 +10,12 @@ import {
   validateProfile,
 } from '@/shared/security';
 import {
+  DEFAULT_DISCOVERED_JOBS_META,
+  DEFAULT_JOB_PREFERENCES,
   DEFAULT_SETTINGS,
+  getDiscoveredJobs,
+  getDiscoveredJobsMeta,
+  getJobPreferences,
   getProfile,
   getSettings,
   hasRecentApplication,
@@ -17,6 +23,8 @@ import {
   learnField,
   logApplication,
   saveProfile,
+  updateDiscoveredJobsMeta,
+  upsertDiscoveredJobs,
 } from '@/shared/storage';
 import type {
   ExtensionMessage,
@@ -28,6 +36,10 @@ import type {
 import { detectPortal, generateId } from '@/shared/utils';
 
 const MESSAGE_TIMEOUT_MS = 5000;
+const AUTO_APPLY_TIMEOUT_MS = 30_000;
+const JOB_FETCH_ALARM = 'fetchDiscoveredJobs';
+
+let autoApplyTimeout: ReturnType<typeof setTimeout> | null = null;
 
 const CONTEXT_MENU_URL_PATTERNS = [
   'https://www.linkedin.com/*',
@@ -70,6 +82,9 @@ async function initializeStorage(): Promise<void> {
     learnedFields: {},
     settings: DEFAULT_SETTINGS,
     lastFillResult: null,
+    jobPreferences: DEFAULT_JOB_PREFERENCES,
+    discoveredJobs: [],
+    discoveredJobsMeta: DEFAULT_DISCOVERED_JOBS_META,
   });
 }
 
@@ -83,6 +98,26 @@ async function runMigration(): Promise<void> {
 
   if (settings && !('apiKey' in settings)) {
     await saveSettings({ apiKey: null, aiProvider: null });
+  }
+
+  const storedAll = await chrome.storage.local.get([
+    'jobPreferences',
+    'discoveredJobs',
+    'discoveredJobsMeta',
+  ]);
+
+  if (!storedAll.jobPreferences) {
+    await chrome.storage.local.set({ jobPreferences: DEFAULT_JOB_PREFERENCES });
+  }
+
+  if (!storedAll.discoveredJobs) {
+    await chrome.storage.local.set({ discoveredJobs: [] });
+  }
+
+  if (!storedAll.discoveredJobsMeta) {
+    await chrome.storage.local.set({
+      discoveredJobsMeta: DEFAULT_DISCOVERED_JOBS_META,
+    });
   }
 
   console.log(`migration v${VERSION} complete`);
@@ -115,6 +150,40 @@ async function showApplicationLoggedNotification(
       error,
     );
   }
+}
+
+async function runJobFetch(): Promise<{
+  success: boolean;
+  count: number;
+  error?: string;
+}> {
+  const preferences = await getJobPreferences();
+
+  if (!preferences.desiredRole.trim()) {
+    return {
+      success: false,
+      count: 0,
+      error: 'Set a desired role in Job Preferences',
+    };
+  }
+
+  try {
+    const jobs = await fetchMatchingJobs(preferences);
+    const count = await upsertDiscoveredJobs(jobs);
+    await updateDiscoveredJobsMeta({
+      lastFetchedAt: Date.now(),
+      lastError: null,
+    });
+    return { success: true, count };
+  } catch (error) {
+    const message = getErrorMessage(error);
+    await updateDiscoveredJobsMeta({ lastError: message });
+    return { success: false, count: 0, error: message };
+  }
+}
+
+async function setupJobFetchAlarm(): Promise<void> {
+  await chrome.alarms.create(JOB_FETCH_ALARM, { periodInMinutes: 240 });
 }
 
 async function submitApplicationLog(
@@ -230,6 +299,17 @@ async function handleMessage(
         };
       }
     }
+    case 'GET_DISCOVERED_JOBS': {
+      const [jobs, meta] = await Promise.all([
+        getDiscoveredJobs(),
+        getDiscoveredJobsMeta(),
+      ]);
+      return { jobs, meta };
+    }
+    case 'FETCH_DISCOVERED_JOBS':
+      return runJobFetch();
+    case 'AUTO_APPLY_JOB':
+      return autoApplyToJob(message.url);
     default: {
       const exhaustiveCheck: never = message;
       throw new Error(`Unhandled message type: ${String(exhaustiveCheck)}`);
@@ -404,6 +484,76 @@ async function setPageContextCompany(
   };
 
   await chrome.storage.session.set({ pageContextByUrl: map });
+}
+
+async function clearPendingAutoApply(tabId?: number): Promise<void> {
+  const stored = await chrome.storage.session.get('pendingAutoApplyTabId');
+  const pendingId = stored.pendingAutoApplyTabId as number | undefined;
+
+  if (pendingId === undefined || (tabId !== undefined && pendingId !== tabId)) {
+    return;
+  }
+
+  await chrome.storage.session.remove('pendingAutoApplyTabId');
+
+  if (autoApplyTimeout) {
+    clearTimeout(autoApplyTimeout);
+    autoApplyTimeout = null;
+  }
+}
+
+async function autoApplyToJob(
+  url: string,
+): Promise<{ success: boolean; error?: string }> {
+  if (!isAutofillableUrl(url)) {
+    return { success: false, error: 'This URL cannot be auto-filled.' };
+  }
+
+  try {
+    const tab = await chrome.tabs.create({ url, active: true });
+
+    if (!tab.id) {
+      return { success: false, error: 'Could not open job tab.' };
+    }
+
+    await chrome.storage.session.set({ pendingAutoApplyTabId: tab.id });
+
+    if (autoApplyTimeout) {
+      clearTimeout(autoApplyTimeout);
+    }
+
+    autoApplyTimeout = setTimeout(() => {
+      void (async () => {
+        const stored = await chrome.storage.session.get('pendingAutoApplyTabId');
+        if (stored.pendingAutoApplyTabId === tab.id) {
+          await clearPendingAutoApply(tab.id);
+          await showShortcutNotification(
+            'Auto-apply timed out',
+            'Page took too long to load.',
+          );
+        }
+      })();
+    }, AUTO_APPLY_TIMEOUT_MS);
+
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error) };
+  }
+}
+
+async function handlePendingAutoApply(
+  tabId: number,
+  tab: chrome.tabs.Tab,
+): Promise<void> {
+  const stored = await chrome.storage.session.get('pendingAutoApplyTabId');
+  const pendingId = stored.pendingAutoApplyTabId as number | undefined;
+
+  if (pendingId !== tabId) {
+    return;
+  }
+
+  await clearPendingAutoApply(tabId);
+  await triggerAutofillOnTab(tab);
 }
 
 async function triggerAutofillOnTab(tab?: chrome.tabs.Tab): Promise<void> {
@@ -592,6 +742,8 @@ chrome.runtime.onInstalled.addListener((details) => {
 
       setupContextMenus();
 
+      await setupJobFetchAlarm();
+
       if (details.reason === 'install') {
         await initializeStorage();
         await openPopupOnInstall();
@@ -663,6 +815,12 @@ chrome.commands.onCommand.addListener((command) => {
   })();
 });
 
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === JOB_FETCH_ALARM) {
+    void runJobFetch();
+  }
+});
+
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   void (async () => {
     try {
@@ -671,6 +829,8 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
       if (changeInfo.status !== 'complete' || !tab.url) {
         return;
       }
+
+      await handlePendingAutoApply(tabId, tab);
 
       const portal = detectPortal(tab.url);
       await setPortalBadge(tabId, portal);

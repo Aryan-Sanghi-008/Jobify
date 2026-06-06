@@ -20,9 +20,10 @@ import type { UserProfile } from "@/shared/types";
 const Profile = lazy(() => import("./pages/Profile"));
 const CoverLetters = lazy(() => import("./pages/CoverLetters"));
 const Tracker = lazy(() => import("./pages/Tracker"));
+const Discover = lazy(() => import("./pages/Discover"));
 const Settings = lazy(() => import("./pages/Settings"));
 
-type TabId = "profile" | "cover-letters" | "tracker" | "settings";
+type TabId = "profile" | "cover-letters" | "tracker" | "discover" | "settings";
 
 interface TabConfig {
   id: TabId;
@@ -151,6 +152,21 @@ function IconList(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+function IconDiscover(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      {...props}
+    >
+      <circle cx="12" cy="12" r="9" />
+      <path d="m16 8-4 4-2-2" />
+    </svg>
+  );
+}
+
 function IconSettings(props: SVGProps<SVGSVGElement>) {
   return (
     <svg
@@ -168,8 +184,9 @@ function IconSettings(props: SVGProps<SVGSVGElement>) {
 
 const TABS: TabConfig[] = [
   { id: "profile", label: "Profile", icon: IconUser },
-  { id: "cover-letters", label: "Cover Letters", icon: IconDocument },
+  { id: "cover-letters", label: "Letters", icon: IconDocument },
   { id: "tracker", label: "Tracker", icon: IconList },
+  { id: "discover", label: "Discover", icon: IconDiscover },
   { id: "settings", label: "Settings", icon: IconSettings },
 ];
 
@@ -180,7 +197,7 @@ interface TabPanelProps {
 }
 
 function TabPanel({ tab, profileComplete, onGoToProfile }: TabPanelProps) {
-  if (tab !== "profile" && !profileComplete) {
+  if (tab !== "profile" && tab !== "discover" && !profileComplete) {
     return <ProfileEmptyState onGoToProfile={onGoToProfile} />;
   }
 
@@ -201,6 +218,12 @@ function TabPanel({ tab, profileComplete, onGoToProfile }: TabPanelProps) {
       return (
         <ErrorBoundary>
           <Tracker />
+        </ErrorBoundary>
+      );
+    case "discover":
+      return (
+        <ErrorBoundary>
+          <Discover />
         </ErrorBoundary>
       );
     case "settings":
@@ -302,6 +325,7 @@ export default function App() {
         pendingTab === "profile" ||
         pendingTab === "cover-letters" ||
         pendingTab === "tracker" ||
+        pendingTab === "discover" ||
         pendingTab === "settings"
       ) {
         setActiveTab(pendingTab);
@@ -626,7 +650,7 @@ export default function App() {
       </main>
 
       <nav className="border-t border-gray-200 bg-gray-50">
-        <ul className="grid grid-cols-4">
+        <ul className="grid grid-cols-5">
           {TABS.map((tab) => {
             const isActive = activeTab === tab.id;
             const Icon = tab.icon;

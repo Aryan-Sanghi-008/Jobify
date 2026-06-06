@@ -32,10 +32,11 @@ test.afterEach(async () => {
   await closeExtensionContext(context);
 });
 
-test('shows all four navigation tabs', async () => {
+test('shows all five navigation tabs', async () => {
   await expect(popup.getByRole('button', { name: 'Profile' })).toBeVisible();
-  await expect(popup.getByRole('button', { name: 'Cover Letters' })).toBeVisible();
+  await expect(popup.getByRole('button', { name: 'Letters' })).toBeVisible();
   await expect(popup.getByRole('button', { name: 'Tracker' })).toBeVisible();
+  await expect(popup.getByRole('button', { name: 'Discover' })).toBeVisible();
   await expect(popup.getByRole('button', { name: 'Settings' })).toBeVisible();
 });
 
@@ -64,7 +65,7 @@ test('creates a cover letter template', async () => {
   await popup.waitForLoadState('domcontentloaded');
   await waitForPopupReady(popup);
 
-  await popup.getByRole('button', { name: 'Cover Letters' }).click();
+  await popup.getByRole('button', { name: 'Letters' }).click();
   await popup
     .getByRole('button', { name: 'Create your first template' })
     .click();

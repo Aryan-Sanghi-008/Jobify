@@ -28,14 +28,17 @@ import {
   clearAllData,
   getApplications,
   getCoverLetters,
+  getJobPreferences,
   getLearnedFieldStats,
   getSettings,
+  saveJobPreferences,
   saveSettings,
 } from '@/shared/storage';
 import { getSelectorHealth } from '@/shared/selectorHealth';
 import type {
   AppSettings,
   CoverLetterTemplate,
+  JobPreferences,
   PortalName,
   TestAiConnectionResponse,
   Theme,
@@ -256,6 +259,19 @@ export default function Settings() {
   const [hasSavedApiKey, setHasSavedApiKey] = useState(false);
   const [isTestingAiConnection, setIsTestingAiConnection] = useState(false);
   const [isSavingAiSettings, setIsSavingAiSettings] = useState(false);
+  const [jobPreferences, setJobPreferences] = useState<JobPreferences | null>(
+    null,
+  );
+  const [jobPrefsDraft, setJobPrefsDraft] = useState({
+    desiredRole: '',
+    preferredLocations: '',
+    minSalary: '',
+    adzunaAppId: '',
+    adzunaAppKey: '',
+    adzunaCountry: 'gb',
+  });
+  const [hasSavedAdzunaKey, setHasSavedAdzunaKey] = useState(false);
+  const [isSavingJobPrefs, setIsSavingJobPrefs] = useState(false);
 
   const importInputRef = useRef<HTMLInputElement>(null);
   const { showToast } = useToast();
@@ -271,15 +287,30 @@ export default function Settings() {
 
   useEffect(() => {
     void (async () => {
-      const [loadedSettings, templates, stats, storageSize] = await Promise.all([
-        getSettings(),
-        getCoverLetters(),
-        getLearnedFieldStats(),
-        checkStorageSize(),
-      ]);
+      const [loadedSettings, templates, stats, storageSize, loadedJobPrefs] =
+        await Promise.all([
+          getSettings(),
+          getCoverLetters(),
+          getLearnedFieldStats(),
+          checkStorageSize(),
+          getJobPreferences(),
+        ]);
       setSettings(loadedSettings);
       setCoverLetters(templates);
       setLearnedStats({ totalLearned: stats.totalLearned });
+      setJobPreferences(loadedJobPrefs);
+      setHasSavedAdzunaKey(Boolean(loadedJobPrefs.adzunaAppKey));
+      setJobPrefsDraft({
+        desiredRole: loadedJobPrefs.desiredRole,
+        preferredLocations: loadedJobPrefs.preferredLocations.join(', '),
+        minSalary:
+          loadedJobPrefs.minSalary === null
+            ? ''
+            : String(loadedJobPrefs.minSalary),
+        adzunaAppId: loadedJobPrefs.adzunaAppId ?? '',
+        adzunaAppKey: '',
+        adzunaCountry: loadedJobPrefs.adzunaCountry,
+      });
       setHasSavedApiKey(Boolean(loadedSettings.apiKey));
       setAiProviderDraft(loadedSettings.aiProvider ?? 'anthropic');
       setAiApiKeyDraft('');
@@ -498,6 +529,53 @@ export default function Settings() {
     }
   };
 
+  const handleSaveJobPreferences = async () => {
+    const desiredRole = jobPrefsDraft.desiredRole.trim();
+    const preferredLocations = jobPrefsDraft.preferredLocations
+      .split(',')
+      .map((location) => location.trim())
+      .filter(Boolean);
+    const minSalary =
+      jobPrefsDraft.minSalary.trim() === ''
+        ? null
+        : Number.parseInt(jobPrefsDraft.minSalary, 10);
+
+    if (minSalary !== null && Number.isNaN(minSalary)) {
+      showToast('Minimum salary must be a number', 'error');
+      return;
+    }
+
+    setIsSavingJobPrefs(true);
+
+    try {
+      const updates: Partial<JobPreferences> = {
+        desiredRole,
+        preferredLocations,
+        minSalary,
+        adzunaCountry: jobPrefsDraft.adzunaCountry,
+      };
+
+      if (jobPrefsDraft.adzunaAppId.trim()) {
+        updates.adzunaAppId = jobPrefsDraft.adzunaAppId.trim();
+      }
+
+      if (jobPrefsDraft.adzunaAppKey.trim()) {
+        updates.adzunaAppKey = jobPrefsDraft.adzunaAppKey.trim();
+        setHasSavedAdzunaKey(true);
+      }
+
+      await saveJobPreferences(updates);
+      const saved = await getJobPreferences();
+      setJobPreferences(saved);
+      setJobPrefsDraft((current) => ({ ...current, adzunaAppKey: '' }));
+      showToast('Job preferences saved', 'success');
+    } catch {
+      showToast('Could not save job preferences', 'error');
+    } finally {
+      setIsSavingJobPrefs(false);
+    }
+  };
+
   const handleCopyDiagnosticReport = async () => {
     setIsCopyingDiagnostics(true);
 
@@ -562,6 +640,115 @@ export default function Settings() {
             </option>
           ))}
         </select>
+      </SettingsSection>
+
+      <SettingsSection title="Job Preferences">
+        <p className="mb-3 text-xs leading-relaxed text-gray-500">
+          Jobs are fetched from public feeds every 4 hours when a desired role is
+          set. Sources: RemoteOK, Arbeitnow, and optional Adzuna.
+        </p>
+
+        <label className={LABEL_CLASS}>Desired role</label>
+        <input
+          type="text"
+          value={jobPrefsDraft.desiredRole}
+          onChange={(event) =>
+            setJobPrefsDraft((current) => ({
+              ...current,
+              desiredRole: event.target.value,
+            }))
+          }
+          placeholder="e.g. software engineer"
+          className={`${INPUT_CLASS} mt-1`}
+        />
+
+        <label className={`${LABEL_CLASS} mt-3 block`}>Preferred locations</label>
+        <input
+          type="text"
+          value={jobPrefsDraft.preferredLocations}
+          onChange={(event) =>
+            setJobPrefsDraft((current) => ({
+              ...current,
+              preferredLocations: event.target.value,
+            }))
+          }
+          placeholder="remote, Berlin, London"
+          className={`${INPUT_CLASS} mt-1`}
+        />
+
+        <label className={`${LABEL_CLASS} mt-3 block`}>
+          Minimum salary (USD, optional)
+        </label>
+        <input
+          type="number"
+          min="0"
+          value={jobPrefsDraft.minSalary}
+          onChange={(event) =>
+            setJobPrefsDraft((current) => ({
+              ...current,
+              minSalary: event.target.value,
+            }))
+          }
+          placeholder="80000"
+          className={`${INPUT_CLASS} mt-1`}
+        />
+
+        <label className={`${LABEL_CLASS} mt-3 block`}>Adzuna App ID (optional)</label>
+        <input
+          type="text"
+          value={jobPrefsDraft.adzunaAppId}
+          onChange={(event) =>
+            setJobPrefsDraft((current) => ({
+              ...current,
+              adzunaAppId: event.target.value,
+            }))
+          }
+          placeholder={jobPreferences?.adzunaAppId ? 'Saved' : 'App ID'}
+          autoComplete="off"
+          className={`${INPUT_CLASS} mt-1`}
+        />
+
+        <label className={`${LABEL_CLASS} mt-3 block`}>Adzuna App Key (optional)</label>
+        <input
+          type="password"
+          value={jobPrefsDraft.adzunaAppKey}
+          onChange={(event) =>
+            setJobPrefsDraft((current) => ({
+              ...current,
+              adzunaAppKey: event.target.value,
+            }))
+          }
+          placeholder={hasSavedAdzunaKey ? 'Saved (enter to replace)' : 'App key'}
+          autoComplete="off"
+          className={`${INPUT_CLASS} mt-1`}
+        />
+
+        <label className={`${LABEL_CLASS} mt-3 block`}>Adzuna country</label>
+        <select
+          value={jobPrefsDraft.adzunaCountry}
+          onChange={(event) =>
+            setJobPrefsDraft((current) => ({
+              ...current,
+              adzunaCountry: event.target.value,
+            }))
+          }
+          className={`${INPUT_CLASS} mt-1`}
+        >
+          <option value="gb">United Kingdom</option>
+          <option value="us">United States</option>
+          <option value="in">India</option>
+          <option value="de">Germany</option>
+          <option value="au">Australia</option>
+        </select>
+
+        <button
+          type="button"
+          onClick={() => void handleSaveJobPreferences()}
+          disabled={isSavingJobPrefs}
+          className="mt-3 w-full rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-70"
+        >
+          {isSavingJobPrefs ? 'Saving…' : 'Save job preferences'}
+        </button>
       </SettingsSection>
 
       <SettingsSection title="AI Integration">

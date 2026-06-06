@@ -349,6 +349,49 @@ export interface AppSettings {
   aiProvider: 'anthropic' | 'openai' | null;
 }
 
+/** Public job feed source identifier. */
+export type JobFeedSource = 'remoteok' | 'arbeitnow' | 'adzuna';
+
+/** User preferences for Discover job fetching. */
+export interface JobPreferences {
+  /** Target role keywords, e.g. "software engineer". */
+  desiredRole: string;
+  /** Preferred locations, e.g. ["remote", "Berlin"]. */
+  preferredLocations: string[];
+  /** Minimum salary in USD, or null for no filter. */
+  minSalary: number | null;
+  /** Adzuna application ID, or null when not configured. */
+  adzunaAppId: string | null;
+  /** Adzuna application key, or null when not configured. */
+  adzunaAppKey: string | null;
+  /** Adzuna country slug, e.g. "gb", "us", "in". */
+  adzunaCountry: string;
+}
+
+/** A job listing fetched from a public feed. */
+export interface DiscoveredJob {
+  /** Stable hash of source + url. */
+  id: string;
+  title: string;
+  company: string;
+  location: string;
+  url: string;
+  source: JobFeedSource;
+  salaryMin: number | null;
+  salaryMax: number | null;
+  tags: string[];
+  /** Truncated description for storage. */
+  description: string;
+  /** Unix timestamp (ms) when this job was fetched. */
+  fetchedAt: number;
+}
+
+/** Metadata for discovered job cache. */
+export interface DiscoveredJobsMeta {
+  lastFetchedAt: number | null;
+  lastError: string | null;
+}
+
 /** A user-taught field mapping with usage metadata. */
 export interface LearnedField {
   /** ProfileMatchKey or literal user answer. */
@@ -379,6 +422,12 @@ export interface StorageSchema {
   lastFillResult: SerializableFillResult | null;
   /** Selector failure counts keyed by portal and selector key. */
   selectorHealth: Partial<Record<PortalName, Record<string, number>>>;
+  /** Job search preferences for the Discover tab. */
+  jobPreferences: JobPreferences;
+  /** Cached job listings from public feeds. */
+  discoveredJobs: DiscoveredJob[];
+  /** Fetch metadata for discovered jobs. */
+  discoveredJobsMeta: DiscoveredJobsMeta;
 }
 
 /** Known runtime message types exchanged between extension contexts. */
@@ -393,7 +442,10 @@ export type MessageType =
   | 'APPLICATION_COMPLETE'
   | 'FORM_STATE_CHANGED'
   | 'GENERATE_COVER_LETTER'
-  | 'TEST_AI_CONNECTION';
+  | 'TEST_AI_CONNECTION'
+  | 'GET_DISCOVERED_JOBS'
+  | 'FETCH_DISCOVERED_JOBS'
+  | 'AUTO_APPLY_JOB';
 
 /** Message types handled by the content script. */
 export type ContentMessageType =
@@ -549,6 +601,41 @@ export interface TestAiConnectionResponse {
   message: string;
 }
 
+/** Request to load cached discovered jobs. */
+export interface GetDiscoveredJobsMessage {
+  type: 'GET_DISCOVERED_JOBS';
+}
+
+/** Response with cached discovered jobs. */
+export interface GetDiscoveredJobsResponse {
+  jobs: DiscoveredJob[];
+  meta: DiscoveredJobsMeta;
+}
+
+/** Request to manually refresh discovered jobs. */
+export interface FetchDiscoveredJobsMessage {
+  type: 'FETCH_DISCOVERED_JOBS';
+}
+
+/** Response from manual job fetch. */
+export interface FetchDiscoveredJobsResponse {
+  success: boolean;
+  count: number;
+  error?: string;
+}
+
+/** Request to open a job URL and trigger autofill. */
+export interface AutoApplyJobMessage {
+  type: 'AUTO_APPLY_JOB';
+  url: string;
+}
+
+/** Response from auto-apply request. */
+export interface AutoApplyJobResponse {
+  success: boolean;
+  error?: string;
+}
+
 /** Discriminated union of all extension runtime messages. */
 export type ExtensionMessage =
   | GetProfileMessage
@@ -561,7 +648,10 @@ export type ExtensionMessage =
   | ApplicationCompleteMessage
   | FormStateChangedMessage
   | GenerateCoverLetterMessage
-  | TestAiConnectionMessage;
+  | TestAiConnectionMessage
+  | GetDiscoveredJobsMessage
+  | FetchDiscoveredJobsMessage
+  | AutoApplyJobMessage;
 
 /** Discriminated union of messages sent to the content script. */
 export type ContentScriptMessage =

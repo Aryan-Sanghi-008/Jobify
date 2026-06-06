@@ -33,6 +33,8 @@ const SENSITIVE_VALUE_KEYS = new Set([
   'token',
   'secret',
   'apiKey',
+  'adzunaAppId',
+  'adzunaAppKey',
 ]);
 
 export interface ProfileCompleteness {

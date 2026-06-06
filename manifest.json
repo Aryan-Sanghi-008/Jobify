@@ -10,9 +10,16 @@
     "scripting",
     "tabs",
     "notifications",
-    "contextMenus"
+    "contextMenus",
+    "alarms"
   ],
-  "host_permissions": ["https://*/*", "http://*/*"],
+  "host_permissions": [
+    "https://*/*",
+    "http://*/*",
+    "https://remoteok.com/*",
+    "https://www.arbeitnow.com/*",
+    "https://api.adzuna.com/*"
+  ],
   "background": {
     "service_worker": "src/background/index.ts",
     "type": "module"
