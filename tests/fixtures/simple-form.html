@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>E2E Simple Application Form</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 2rem;
+        max-width: 480px;
+      }
+
+      form {
+        display: grid;
+        gap: 1rem;
+      }
+
+      label {
+        display: block;
+        font-weight: 600;
+        margin-bottom: 0.25rem;
+      }
+
+      input {
+        width: 100%;
+        padding: 0.5rem;
+        font-size: 1rem;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Job Application</h1>
+    <form id="application-form">
+      <div>
+        <label for="fullName">Full Name</label>
+        <input id="fullName" name="fullName" type="text" />
+      </div>
+      <div>
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" />
+      </div>
+      <div>
+        <label for="phone">Phone</label>
+        <input id="phone" name="phone" type="tel" />
+      </div>
+      <div>
+        <label for="linkedin">LinkedIn</label>
+        <input id="linkedin" name="linkedin" type="url" />
+      </div>
+      <div>
+        <label for="currentCtc">Current CTC</label>
+        <input id="currentCtc" name="currentCtc" type="text" />
+      </div>
+      <div>
+        <label for="noticePeriod">Notice Period</label>
+        <input id="noticePeriod" name="noticePeriod" type="text" />
+      </div>
+      <div>
+        <label for="favoriteColor">Favorite Color</label>
+        <input id="favoriteColor" name="favoriteColor" type="text" />
+      </div>
+    </form>
+  </body>
+</html>

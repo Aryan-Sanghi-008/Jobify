@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Application - Page 2</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 2rem;
+        max-width: 480px;
+      }
+
+      form {
+        display: grid;
+        gap: 1rem;
+      }
+
+      label {
+        display: block;
+        font-weight: 600;
+        margin-bottom: 0.25rem;
+      }
+
+      input,
+      button {
+        width: 100%;
+        padding: 0.5rem;
+        font-size: 1rem;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Professional Information</h1>
+    <form id="page2-form">
+      <div>
+        <label for="currentTitle">Current Job Title</label>
+        <input id="currentTitle" name="currentTitle" type="text" />
+      </div>
+      <div>
+        <label for="currentCtc">Current CTC</label>
+        <input id="currentCtc" name="currentCtc" type="text" />
+      </div>
+      <div>
+        <label for="noticePeriod">Notice Period</label>
+        <input id="noticePeriod" name="noticePeriod" type="text" />
+      </div>
+      <button type="button" id="next">Next</button>
+    </form>
+    <script>
+      document.getElementById('next').addEventListener('click', () => {
+        window.location.href = 'page3.html';
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Application - Page 1</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 2rem;
+        max-width: 480px;
+      }
+
+      form {
+        display: grid;
+        gap: 1rem;
+      }
+
+      label {
+        display: block;
+        font-weight: 600;
+        margin-bottom: 0.25rem;
+      }
+
+      input,
+      button {
+        width: 100%;
+        padding: 0.5rem;
+        font-size: 1rem;
+      }
+    </style>
+  </head>
+  <body>
+    <section id="step-personal">
+      <h1>Personal Information</h1>
+      <form id="page1-form">
+        <div>
+          <label for="fullName">Full Name</label>
+          <input id="fullName" name="fullName" type="text" />
+        </div>
+        <div>
+          <label for="email">Email</label>
+          <input id="email" name="email" type="email" />
+        </div>
+        <div>
+          <label for="phone">Phone</label>
+          <input id="phone" name="phone" type="tel" />
+        </div>
+        <button type="button" id="next-personal">Next</button>
+      </form>
+    </section>
+
+    <section id="step-professional" hidden>
+      <h1>Professional Information</h1>
+      <form id="page2-form">
+        <div>
+          <label for="currentTitle">Current Job Title</label>
+          <input id="currentTitle" name="currentTitle" type="text" />
+        </div>
+        <div>
+          <label for="currentCtc">Current CTC</label>
+          <input id="currentCtc" name="currentCtc" type="text" />
+        </div>
+        <div>
+          <label for="noticePeriod">Notice Period</label>
+          <input id="noticePeriod" name="noticePeriod" type="text" />
+        </div>
+        <button type="button" id="next-professional">Next</button>
+      </form>
+    </section>
+
+    <section id="step-review" hidden>
+      <h1>Review your application</h1>
+      <p id="confirmation">
+        Please review your details before submitting your application.
+      </p>
+      <button type="button" id="submit">Submit</button>
+    </section>
+
+    <script>
+      const steps = ['step-personal', 'step-professional', 'step-review'];
+
+      function showStep(stepId, urlSuffix) {
+        steps.forEach((id) => {
+          document.getElementById(id).hidden = id !== stepId;
+        });
+        history.pushState({ step: stepId }, '', urlSuffix);
+      }
+
+      document.getElementById('next-personal').addEventListener('click', () => {
+        showStep('step-professional', 'page2.html');
+      });
+
+      document.getElementById('next-professional').addEventListener('click', () => {
+        showStep('step-review', 'page3.html');
+      });
+    </script>
+  </body>
+</html>
