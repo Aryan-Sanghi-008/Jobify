@@ -210,6 +210,22 @@ export async function updateApplicationStatus(
   }
 }
 
+export async function updateApplicationNotes(
+  id: string,
+  notes: string,
+): Promise<void> {
+  try {
+    const existing = await getApplications();
+    const updated = existing.map((app) =>
+      app.id === id ? { ...app, notes } : app,
+    );
+    await storageSet({ applications: updated });
+  } catch (error) {
+    logStorageError('updateApplicationNotes', error);
+    throw error;
+  }
+}
+
 export async function getLearnedFields(): Promise<Record<string, string>> {
   try {
     const learnedFields = await storageGet('learnedFields');
