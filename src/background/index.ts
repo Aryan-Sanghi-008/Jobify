@@ -2,6 +2,7 @@ import { VERSION } from '@/shared/constants';
 import { Logger } from '@/shared/logger';
 import {
   assertRuntimeValid,
+  sanitizeString,
   validateMessage,
   validateProfile,
 } from '@/shared/security';
@@ -18,12 +19,34 @@ import {
 import type {
   ExtensionMessage,
   JobApplication,
+  PageInfoResponse,
   PortalName,
   TriggerAutofillResponse,
 } from '@/shared/types';
 import { detectPortal, generateId } from '@/shared/utils';
 
 const MESSAGE_TIMEOUT_MS = 5000;
+
+const CONTEXT_MENU_URL_PATTERNS = [
+  'https://www.linkedin.com/*',
+  'https://www.naukri.com/*',
+  'https://wellfound.com/*',
+  'https://www.instahyre.com/*',
+  'https://*.greenhouse.io/*',
+  'https://*.lever.co/*',
+  'https://*.myworkdayjobs.com/*',
+];
+
+const CONTEXT_MENU_IDS = {
+  autofillPage: 'autofill-page',
+  logApplication: 'log-application',
+  useAsCompanyName: 'use-as-company-name',
+} as const;
+
+interface TabPageContext {
+  company?: string;
+  jobTitle?: string;
+}
 
 const PORTAL_BADGE_ABBREVIATIONS: Record<Exclude<PortalName, 'generic'>, string> =
   {
@@ -280,9 +303,47 @@ function formatAutofillNotification(
   };
 }
 
-async function handleTriggerAutofillCommand(): Promise<void> {
-  const tab = await getActiveTab();
+function setupContextMenus(): void {
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({
+      id: CONTEXT_MENU_IDS.autofillPage,
+      title: 'Auto-fill this application',
+      contexts: ['page'],
+      documentUrlPatterns: CONTEXT_MENU_URL_PATTERNS,
+    });
 
+    chrome.contextMenus.create({
+      id: CONTEXT_MENU_IDS.logApplication,
+      title: 'Log this application manually',
+      contexts: ['page'],
+      documentUrlPatterns: CONTEXT_MENU_URL_PATTERNS,
+    });
+
+    chrome.contextMenus.create({
+      id: CONTEXT_MENU_IDS.useAsCompanyName,
+      title: "Use '%s' as company name",
+      contexts: ['selection'],
+    });
+  });
+}
+
+async function setPageContextCompany(
+  pageUrl: string,
+  company: string,
+): Promise<void> {
+  const stored = await chrome.storage.session.get('pageContextByUrl');
+  const map =
+    (stored.pageContextByUrl as Record<string, TabPageContext> | undefined) ?? {};
+
+  map[pageUrl] = {
+    ...map[pageUrl],
+    company: sanitizeString(company),
+  };
+
+  await chrome.storage.session.set({ pageContextByUrl: map });
+}
+
+async function triggerAutofillOnTab(tab?: chrome.tabs.Tab): Promise<void> {
   if (!tab?.id) {
     await showShortcutNotification('Autofill failed', 'No active tab found.');
     return;
@@ -305,6 +366,100 @@ async function handleTriggerAutofillCommand(): Promise<void> {
     await showShortcutNotification(notification.title, notification.message);
   } catch (error) {
     await showShortcutNotification('Autofill failed', getErrorMessage(error));
+  }
+}
+
+async function handleTriggerAutofillCommand(): Promise<void> {
+  const tab = await getActiveTab();
+  await triggerAutofillOnTab(tab ?? undefined);
+}
+
+async function openManualLogPopup(tab?: chrome.tabs.Tab): Promise<void> {
+  if (!tab?.id || !tab.url) {
+    await showShortcutNotification(
+      'Log failed',
+      'Could not read the current page.',
+    );
+    return;
+  }
+
+  try {
+    await ensureContentScript(tab.id);
+
+    let pageInfo: PageInfoResponse = {
+      company: '',
+      jobTitle: '',
+      portal: detectPortal(tab.url),
+    };
+
+    try {
+      pageInfo = await sendTabMessage<PageInfoResponse>(tab.id, {
+        type: 'GET_PAGE_INFO',
+      });
+    } catch {
+      // Fall back to portal detection only.
+    }
+
+    await chrome.storage.session.set({
+      pendingManualLog: {
+        tabId: tab.id,
+        url: tab.url,
+        portal: pageInfo.portal,
+        company: pageInfo.company,
+        role: pageInfo.jobTitle,
+      },
+    });
+
+    await chrome.windows.create({
+      url: chrome.runtime.getURL('popup/log-application.html'),
+      type: 'popup',
+      width: 380,
+      height: 320,
+    });
+  } catch (error) {
+    await showShortcutNotification('Log failed', getErrorMessage(error));
+  }
+}
+
+async function handleContextMenuClick(
+  info: chrome.contextMenus.OnClickData,
+  tab?: chrome.tabs.Tab,
+): Promise<void> {
+  if (info.menuItemId === CONTEXT_MENU_IDS.autofillPage) {
+    await triggerAutofillOnTab(tab);
+    return;
+  }
+
+  if (info.menuItemId === CONTEXT_MENU_IDS.logApplication) {
+    await openManualLogPopup(tab);
+    return;
+  }
+
+  if (info.menuItemId === CONTEXT_MENU_IDS.useAsCompanyName) {
+    const company = info.selectionText?.trim() ?? '';
+    const pageUrl = info.pageUrl ?? tab?.url;
+
+    if (!company) {
+      await showShortcutNotification(
+        'Company name not set',
+        'Select some text first.',
+      );
+      return;
+    }
+
+    if (!pageUrl) {
+      await showShortcutNotification(
+        'Company name not set',
+        'Could not determine the current page.',
+      );
+      return;
+    }
+
+    await setPageContextCompany(pageUrl, company);
+    await showShortcutNotification(
+      'Company name set',
+      `"${company}" will be used in cover letters on this page.`,
+    );
   }
 }
 
@@ -352,6 +507,7 @@ async function notifyPortalDetected(
   }
 }
 
+setupContextMenus();
 void Logger.refreshDebugMode();
 
 chrome.storage.onChanged.addListener((changes, area) => {
@@ -370,6 +526,8 @@ chrome.runtime.onInstalled.addListener((details) => {
     try {
       assertRuntimeValid();
       await Logger.refreshDebugMode();
+
+      setupContextMenus();
 
       if (details.reason === 'install') {
         await initializeStorage();
@@ -410,6 +568,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   })();
 
   return true;
+});
+
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  void (async () => {
+    try {
+      assertRuntimeValid();
+      await handleContextMenuClick(info, tab);
+    } catch (error) {
+      console.error('[JobAutofill Background] context menu failed:', error);
+    }
+  })();
 });
 
 chrome.commands.onCommand.addListener((command) => {

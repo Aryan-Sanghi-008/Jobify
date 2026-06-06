@@ -237,6 +237,23 @@ interface AutofillModules {
     return { success: true };
   }
 
+  async function getPageContext(): Promise<{
+    company: string;
+    jobTitle: string;
+  }> {
+    const stored = await chrome.storage.session.get('pageContextByUrl');
+    const overrides = (
+      stored.pageContextByUrl as
+        | Record<string, { company?: string; jobTitle?: string }>
+        | undefined
+    )?.[window.location.href];
+
+    return {
+      company: overrides?.company?.trim() || extractCompanyFromPage(),
+      jobTitle: overrides?.jobTitle?.trim() || extractJobTitleFromPage(),
+    };
+  }
+
   async function handleFillCoverLetter(
     message: FillCoverLetterMessage,
   ): Promise<FillCoverLetterResponse> {
@@ -264,9 +281,10 @@ interface AutofillModules {
       return { success: false, field_found: true };
     }
 
+    const pageContext = await getPageContext();
     const content = interpolateCoverLetter(template.body, {
-      company_name: extractCompanyFromPage(),
-      job_title: extractJobTitleFromPage(),
+      company_name: pageContext.company,
+      job_title: pageContext.jobTitle,
       your_name: profile?.personal.fullName ?? '',
     });
 
@@ -276,10 +294,12 @@ interface AutofillModules {
     return { success: true, field_found: true };
   }
 
-  function handleGetPageInfo(): PageInfoResponse {
+  async function handleGetPageInfo(): Promise<PageInfoResponse> {
+    const pageContext = await getPageContext();
+
     return {
-      company: extractCompanyFromPage(),
-      jobTitle: extractJobTitleFromPage(),
+      company: pageContext.company,
+      jobTitle: pageContext.jobTitle,
       portal: detectPortal(window.location.href),
     };
   }

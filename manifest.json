@@ -2,7 +2,14 @@
   "manifest_version": 3,
   "name": "Jobify",
   "version": "0.1.0",
-  "permissions": ["storage", "activeTab", "scripting", "tabs", "notifications"],
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "tabs",
+    "notifications",
+    "contextMenus"
+  ],
   "host_permissions": ["https://*/*", "http://*/*"],
   "background": {
     "service_worker": "src/background/index.ts",
