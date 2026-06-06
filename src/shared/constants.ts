@@ -226,6 +226,7 @@ export const FIELD_LABEL_MAP: Record<keyof FlatProfile, string[]> = {
     'present ctc',
     'current compensation',
     'salary in lpa',
+    'current ctc in lpa',
     'current annual salary',
   ],
   expectedCTC: [

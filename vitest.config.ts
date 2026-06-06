@@ -10,5 +10,16 @@ export default defineConfig({
   test: {
     environment: 'node',
     passWithNoTests: true,
+    coverage: {
+      provider: 'v8',
+      include: ['src/shared/**/*.ts', 'src/content/**/*.ts'],
+      exclude: [
+        'src/**/*.test.ts',
+        'src/content/ats/**',
+        'src/popup/**',
+        'src/background/**',
+      ],
+      reporter: ['text-summary', 'text'],
+    },
   },
 });

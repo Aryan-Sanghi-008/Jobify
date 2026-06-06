@@ -26,7 +26,7 @@ function mockVisibleLayout(): void {
         visibility: 'visible',
         opacity: '1',
         getPropertyValue: () => '',
-      }) as CSSStyleDeclaration,
+      }) as unknown as CSSStyleDeclaration,
   );
 
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({

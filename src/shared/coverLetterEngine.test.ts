@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  SUPPORTED_VARIABLES,
   expandCoverLetter,
   getPreviewValues,
   validateTemplate,
@@ -50,46 +51,66 @@ describe('expandCoverLetter', () => {
     vi.useRealTimers();
   });
 
-  it('expands all supported variables', () => {
-    const template = makeTemplate(`Dear {{company_name}},
-
-I am applying for {{job_title}}.
-Name: {{your_name}}
-Email: {{your_email}}
-Phone: {{your_phone}}
-Role: {{current_role}}
-Experience: {{years_exp}} years
-Skills: {{top_skills}}
-Notice: {{notice_period}}
-LinkedIn: {{linkedin}}
-Date: {{today_date}}`);
+  it('expands all 10 supported variables correctly', () => {
+    const template = makeTemplate(
+      [
+        'company={{company_name}}',
+        'role={{job_title}}',
+        'name={{your_name}}',
+        'email={{your_email}}',
+        'phone={{your_phone}}',
+        'title={{current_role}}',
+        'exp={{years_exp}}',
+        'skills={{top_skills}}',
+        'notice={{notice_period}}',
+        'linkedin={{linkedin}}',
+        'date={{today_date}}',
+      ].join('\n'),
+    );
 
     const result = expandCoverLetter(template, fullProfile, pageContext);
 
-    expect(result).toContain('Dear Acme Corp,');
-    expect(result).toContain('applying for Staff Engineer');
-    expect(result).toContain('Name: Jane Doe');
-    expect(result).toContain('Email: jane@example.com');
-    expect(result).toContain('Phone: +91 98765 43210');
-    expect(result).toContain('Role: Senior Engineer');
-    expect(result).toContain('Experience: 7 years');
-    expect(result).toContain('Skills: TypeScript, React, Node.js');
-    expect(result).toContain('Notice: 30 days');
-    expect(result).toContain('LinkedIn: https://linkedin.com/in/janedoe');
-    expect(result).toContain('Date: June 5, 2026');
+    expect(result).toContain('company=Acme Corp');
+    expect(result).toContain('role=Staff Engineer');
+    expect(result).toContain('name=Jane Doe');
+    expect(result).toContain('email=jane@example.com');
+    expect(result).toContain('phone=+91 98765 43210');
+    expect(result).toContain('title=Senior Engineer');
+    expect(result).toContain('exp=7');
+    expect(result).toContain('skills=TypeScript, React, Node.js');
+    expect(result).toContain('notice=30 days');
+    expect(result).toContain('linkedin=https://linkedin.com/in/janedoe');
+    expect(result).toContain('date=June 5, 2026');
+  });
+
+  it.each(SUPPORTED_VARIABLES)('supports variable {{%s}}', (variable) => {
+    const template = makeTemplate(`Value: {{${variable}}}`);
+    const result = expandCoverLetter(template, fullProfile, pageContext);
+
+    expect(result).not.toContain(`{{${variable}}}`);
+    expect(result.startsWith('Value: ')).toBe(true);
+    expect(result.length).toBeGreaterThan('Value: '.length);
   });
 
   it('replaces missing profile values with bracket placeholders', () => {
-    const template = makeTemplate('Email: {{your_email}}, Skills: {{top_skills}}');
+    const template = makeTemplate(
+      'Email: {{your_email}}, Skills: {{top_skills}}, LinkedIn: {{linkedin}}',
+    );
     const profile: UserProfile = {
       ...fullProfile,
-      personal: { ...fullProfile.personal, email: '' },
+      personal: {
+        ...fullProfile.personal,
+        email: '',
+        linkedinUrl: '   ',
+      },
       skills: [],
     };
 
     const result = expandCoverLetter(template, profile, pageContext);
 
-    expect(result).toBe('Email: [YOUR_EMAIL], Skills: [TOP_SKILLS]');
+    expect(result).toBe(
+      'Email: [YOUR_EMAIL], Skills: [TOP_SKILLS], LinkedIn: [LINKEDIN]',
+    );
   });
 
   it('handles case-insensitive and spaced variable syntax', () => {
@@ -100,10 +121,10 @@ Date: {{today_date}}`);
   });
 
   it('leaves unknown variables unchanged', () => {
-    const template = makeTemplate('Hello {{foo}} and {{comapny_name}}');
+    const template = makeTemplate('Hello {{foo}} and {{custom_var}}');
     const result = expandCoverLetter(template, fullProfile, pageContext);
 
-    expect(result).toBe('Hello {{foo}} and {{comapny_name}}');
+    expect(result).toBe('Hello {{foo}} and {{custom_var}}');
   });
 });
 
@@ -114,6 +135,16 @@ describe('validateTemplate', () => {
     expect(result.valid).toBe(false);
     expect(result.unknownVariables).toEqual(['comapny_name']);
     expect(result.missingVariables).toEqual([]);
+  });
+
+  it('catches common typos in variable names', () => {
+    const result = validateTemplate(
+      'Role: {{job_titel}}, Company: {{compnay_name}}',
+      fullProfile,
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.unknownVariables).toEqual(['job_titel', 'compnay_name']);
   });
 
   it('reports missing profile-backed variables', () => {
@@ -145,6 +176,17 @@ describe('validateTemplate', () => {
 
     expect(result.valid).toBe(true);
     expect(result.missingVariables).toEqual(['company_name', 'job_title']);
+  });
+
+  it('accepts a template that only uses known variables with available data', () => {
+    const result = validateTemplate(
+      'Dear {{your_name}}, applying for {{current_role}}.',
+      fullProfile,
+    );
+
+    expect(result.valid).toBe(true);
+    expect(result.unknownVariables).toEqual([]);
+    expect(result.missingVariables).toEqual([]);
   });
 });
 
