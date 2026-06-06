@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Job Autofill",
+  "name": "Jobify",
   "version": "0.1.0",
   "permissions": ["storage", "activeTab", "scripting", "tabs", "notifications"],
   "host_permissions": ["https://*/*", "http://*/*"],

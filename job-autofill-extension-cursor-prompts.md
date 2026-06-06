@@ -1,4 +1,4 @@
-# Job Autofill Chrome Extension — Complete Cursor Prompt Playbook
+# Jobify Chrome Extension — Complete Cursor Prompt Playbook
 
 > **How to use this document**
 > Work through prompts sequentially. Never skip a prompt. Each prompt assumes all previous ones are done. Paste each prompt verbatim into Cursor's AI chat (Cmd+L or Ctrl+L). After each prompt, verify the output compiles/runs before proceeding. If Cursor generates something unexpected, use the "Correction Prompt" provided at the end of each phase.
@@ -7,17 +7,17 @@
 
 ## Tech Stack Decision
 
-| Layer | Choice | Why |
-|---|---|---|
-| Extension framework | **Manifest V3** (vanilla JS) | No build step, direct DOM access, least overhead |
-| UI (popup) | **React 18 + Vite** | Fast dev, component reuse, HMR |
-| Styling | **Tailwind CSS v3** | Utility-first, purged in prod, consistent design tokens |
-| Storage | **Chrome Storage API** (local) | Built-in, encrypted by OS, no server needed |
-| Resume parsing | **PDF.js** (Mozilla) | In-browser, no server, battle-tested |
-| Field matching | **Fuse.js** | Lightweight fuzzy search, zero deps |
-| Testing | **Vitest + Playwright** | Fast unit tests + E2E browser tests |
-| Bundler | **Vite + CRXJS plugin** | HMR in extension dev, clean MV3 output |
-| Language | **TypeScript** throughout | Catches bugs at compile time, better Cursor autocomplete |
+| Layer               | Choice                         | Why                                                      |
+| ------------------- | ------------------------------ | -------------------------------------------------------- |
+| Extension framework | **Manifest V3** (vanilla JS)   | No build step, direct DOM access, least overhead         |
+| UI (popup)          | **React 18 + Vite**            | Fast dev, component reuse, HMR                           |
+| Styling             | **Tailwind CSS v3**            | Utility-first, purged in prod, consistent design tokens  |
+| Storage             | **Chrome Storage API** (local) | Built-in, encrypted by OS, no server needed              |
+| Resume parsing      | **PDF.js** (Mozilla)           | In-browser, no server, battle-tested                     |
+| Field matching      | **Fuse.js**                    | Lightweight fuzzy search, zero deps                      |
+| Testing             | **Vitest + Playwright**        | Fast unit tests + E2E browser tests                      |
+| Bundler             | **Vite + CRXJS plugin**        | HMR in extension dev, clean MV3 output                   |
+| Language            | **TypeScript** throughout      | Catches bugs at compile time, better Cursor autocomplete |
 
 ---
 
@@ -69,6 +69,7 @@ job-autofill-extension/
 ---
 
 ## PHASE 1 — Project Scaffold & Core Architecture
+
 **Goal:** Working extension shell that loads in Chrome with TypeScript, Vite, and all config correct.
 **Duration:** ~2–3 hours
 **Prompts:** 1–12
@@ -95,7 +96,7 @@ Tasks:
 1. Create package.json with all dependencies listed above. Use exact versions, not "latest".
 2. Create vite.config.ts configured for @crxjs/vite-plugin pointing to manifest.json
 3. Create manifest.json (MV3) with:
-   - name: "Job Autofill"
+   - name: "Jobify"
    - version: "0.1.0"
    - permissions: ["storage", "activeTab", "scripting", "tabs"]
    - host_permissions: ["https://*/*", "http://*/*"]
@@ -139,7 +140,7 @@ Do NOT write implementation yet — just scaffold with placeholder exports. The 
 ### Prompt 2 — TypeScript Type System
 
 ```
-We are building a Chrome Extension called "Job Autofill". All types live in src/shared/types.ts.
+We are building a Chrome Extension called "Jobify". All types live in src/shared/types.ts.
 
 Write the complete TypeScript interfaces for this file. Do not import from anywhere else — this file has zero dependencies.
 
@@ -210,7 +211,7 @@ Export all interfaces. Add JSDoc comments on every field explaining what it stor
 ### Prompt 3 — Storage Abstraction Layer
 
 ```
-Context: We are building a Chrome Extension "Job Autofill". 
+Context: We are building a Chrome Extension "Jobify".
 File: src/shared/storage.ts
 Dependencies: src/shared/types.ts (already written)
 
@@ -224,21 +225,21 @@ Requirements:
 
    getProfile(): Promise<UserProfile | null>
    saveProfile(profile: UserProfile): Promise<void>
-   
+
    getCoverLetters(): Promise<CoverLetterTemplate[]>
    saveCoverLetter(template: CoverLetterTemplate): Promise<void>
    deleteCoverLetter(id: string): Promise<void>
-   
+
    getApplications(): Promise<JobApplication[]>
    logApplication(app: JobApplication): Promise<void>
    updateApplicationStatus(id: string, status: JobApplication['status']): Promise<void>
-   
+
    getLearnedFields(): Promise<Record<string, string>>
    learnField(labelHash: string, profileKey: string): Promise<void>
-   
+
    getSettings(): Promise<AppSettings>
    saveSettings(settings: Partial<AppSettings>): Promise<void>
-   
+
    clearAllData(): Promise<void>
 
 5. Add a DEFAULT_SETTINGS constant with sensible defaults:
@@ -262,7 +263,7 @@ Do not use any external libraries. Pure TypeScript + Chrome extension APIs only.
 ### Prompt 4 — Constants & Field Mapping Dictionary
 
 ```
-Context: Chrome Extension "Job Autofill".
+Context: Chrome Extension "Jobify".
 File: src/shared/constants.ts
 Dependencies: src/shared/types.ts
 
@@ -280,7 +281,7 @@ Write the constants file. This is the dictionary that makes field matching work.
 
 2. FIELD_LABEL_MAP: Record<keyof FlatProfile, string[]>
    This is the most important constant. For every profile key, list ALL the label variations you'd ever see on a job application form. Be exhaustive — include Indian job portal conventions too.
-   
+
    Examples:
    fullName: ['full name', 'your name', 'applicant name', 'name', 'candidate name', 'first and last name']
    firstName: ['first name', 'given name', 'fname']
@@ -301,7 +302,7 @@ Write the constants file. This is the dictionary that makes field matching work.
    country: ['country', 'country of residence']
    willingToRelocate: ['willing to relocate', 'open to relocation', 'can relocate']
    workAuthorization: ['work authorization', 'work permit', 'visa status', 'right to work', 'authorized to work']
-   
+
    Cover at least 20 profile keys, 5–10 label variations each.
 
 3. ATS_SELECTORS: Record<string, { nextButton: string, submitButton: string, formContainer: string }> — CSS selectors for each ATS:
@@ -322,7 +323,7 @@ Write the constants file. This is the dictionary that makes field matching work.
 ### Prompt 5 — Utility Functions
 
 ```
-Context: Chrome Extension "Job Autofill".
+Context: Chrome Extension "Jobify".
 File: src/shared/utils.ts
 Dependencies: src/shared/types.ts, src/shared/constants.ts
 
@@ -382,7 +383,7 @@ Functions to implement:
 ### Prompt 6 — Background Service Worker
 
 ```
-Context: Chrome Extension "Job Autofill".
+Context: Chrome Extension "Jobify".
 File: src/background/index.ts
 Dependencies: src/shared/types.ts, src/shared/storage.ts, src/shared/utils.ts
 
@@ -397,7 +398,7 @@ Implement:
 
 2. Message handler (chrome.runtime.onMessage):
    Handle these message types (define a MessageType union in types.ts):
-   
+
    - 'GET_PROFILE' → return await getProfile()
    - 'SAVE_PROFILE' → await saveProfile(message.payload), return { success: true }
    - 'LOG_APPLICATION' → await logApplication(message.payload), return { success: true }
@@ -426,7 +427,7 @@ Security rules to follow:
 ### Prompt 7 — Field Scanner (Core Engine Part 1)
 
 ```
-Context: Chrome Extension "Job Autofill".
+Context: Chrome Extension "Jobify".
 File: src/content/scanner.ts
 Dependencies: src/shared/types.ts, src/shared/constants.ts, src/shared/utils.ts
 
@@ -473,7 +474,7 @@ Also export:
   scanForNextButton(): HTMLButtonElement | null
   Looks for "Next", "Continue", "Proceed" buttons (text-based + aria-label) that indicate multi-page form.
 
-  scanForSubmitButton(): HTMLButtonElement | null  
+  scanForSubmitButton(): HTMLButtonElement | null
   Looks for "Submit", "Apply Now", "Send Application" buttons.
 
   scanForCoverLetterField(): HTMLElement | null
@@ -487,7 +488,7 @@ Write defensive code. Every querySelector must be wrapped in try/catch. Never th
 ### Prompt 8 — Field Matcher (Core Engine Part 2)
 
 ```
-Context: Chrome Extension "Job Autofill".
+Context: Chrome Extension "Jobify".
 File: src/content/matcher.ts
 Dependencies: src/shared/types.ts, src/shared/constants.ts, src/shared/utils.ts, src/shared/storage.ts
 External: fuse.js (already installed)
@@ -542,7 +543,7 @@ Test cases:
 ### Prompt 9 — Field Filler (Core Engine Part 3)
 
 ```
-Context: Chrome Extension "Job Autofill".
+Context: Chrome Extension "Jobify".
 File: src/content/filler.ts
 Dependencies: src/shared/types.ts, src/shared/utils.ts
 
@@ -611,7 +612,7 @@ Performance: total fill operation should complete in under 500ms for typical 20-
 ### Prompt 10 — DOM Observer (Multi-Page Handler)
 
 ```
-Context: Chrome Extension "Job Autofill".
+Context: Chrome Extension "Jobify".
 File: src/content/observer.ts
 Dependencies: src/shared/types.ts, src/shared/utils.ts
 
@@ -661,7 +662,7 @@ Do not use polling (setInterval). MutationObserver only.
 ### Prompt 11 — Content Script Entry Point
 
 ```
-Context: Chrome Extension "Job Autofill".
+Context: Chrome Extension "Jobify".
 File: src/content/index.ts
 Dependencies: All content/ files and shared/ files
 
@@ -676,7 +677,7 @@ Implementation:
    - Listen for messages from popup and background
 
 2. Message handlers (chrome.runtime.onMessage):
-   
+
    'TRIGGER_AUTOFILL':
      a. Get profile and settings from storage
      b. If profile is null or profile.personal.email is empty: send 'PROFILE_INCOMPLETE' message back, stop
@@ -686,15 +687,15 @@ Implementation:
      f. Fill fields: fillFields(matchedFields, flatProfile, settings)
      g. Send result back to popup: { filled, skipped, unknown, errors }
      h. Start FormObserver for multi-page handling
-   
+
    'FILL_COVER_LETTER':
      a. Find cover letter field: scanForCoverLetterField()
      b. If found: get template, interpolate, fill using simulateUserInput
      c. Return { success, field_found }
-   
+
    'GET_PAGE_INFO':
      Return { company: extractCompanyFromPage(), jobTitle: extractJobTitleFromPage(), portal: detectPortal(window.location.href) }
-   
+
    'LEARN_FIELD_MAPPING':
      Call learnField() with payload. Confirm to user.
 
@@ -716,7 +717,7 @@ Implementation:
 ### Prompt 12 — Build Verification
 
 ```
-Context: Chrome Extension "Job Autofill". All Phase 1 files are written.
+Context: Chrome Extension "Jobify". All Phase 1 files are written.
 
 Do the following:
 1. Check that manifest.json is valid MV3 format
@@ -745,6 +746,7 @@ If any type errors exist, list them and fix them now before proceeding to Phase 
 ---
 
 ## PHASE 2 — Popup UI
+
 **Goal:** Complete React popup with Profile editor, Cover Letters manager, and Application Tracker.
 **Duration:** ~3–4 hours
 **Prompts:** 13–25
@@ -754,7 +756,7 @@ If any type errors exist, list them and fix them now before proceeding to Phase 
 ### Prompt 13 — Popup App Shell
 
 ```
-Context: Chrome Extension "Job Autofill". Phase 1 complete. Now building the popup UI.
+Context: Chrome Extension "Jobify". Phase 1 complete. Now building the popup UI.
 File: src/popup/App.tsx + src/popup/main.tsx
 
 The popup is a 380px wide React app (standard extension popup width).
@@ -764,13 +766,13 @@ Write App.tsx with:
    - Tabs are icons + labels, fixed at bottom of popup
    - Use Tailwind for all styling
    - Active tab has a blue indicator
-   
+
 2. State: current tab (useState)
 
 3. Lazy-load each page component (React.lazy + Suspense with a spinner fallback)
 
 4. A top header bar showing:
-   - Extension name "Job Autofill" (small, muted)
+   - Extension name "Jobify" (small, muted)
    - A status pill showing: "Profile complete" (green) or "Setup needed" (amber)
    - Status is derived by loading profile from storage on mount
 
@@ -793,14 +795,14 @@ Use only React built-ins — no Zustand, Redux, or other state managers at this 
 ### Prompt 14 — Profile Page (Personal Info)
 
 ```
-Context: Chrome Extension "Job Autofill". Popup shell exists (App.tsx done).
+Context: Chrome Extension "Jobify". Popup shell exists (App.tsx done).
 File: src/popup/pages/Profile.tsx
 
 Write the Profile page. It is the most important page — users spend most time here on first setup.
 
 Split into sections (accordion or tabs within the page):
   1. Personal Info
-  2. Professional Info  
+  2. Professional Info
   3. Education
   4. Experience
   5. Skills & Languages
@@ -840,7 +842,7 @@ All Tailwind. Clean, professional form UI.
 ### Prompt 15 — Cover Letters Page
 
 ```
-Context: Chrome Extension "Job Autofill". Profile page is done.
+Context: Chrome Extension "Jobify". Profile page is done.
 File: src/popup/pages/CoverLetters.tsx
 
 Write the Cover Letters management page.
@@ -887,7 +889,7 @@ Validations: Name required. Body minimum 50 characters.
 ### Prompt 16 — Application Tracker Page
 
 ```
-Context: Chrome Extension "Job Autofill". Cover letters page is done.
+Context: Chrome Extension "Jobify". Cover letters page is done.
 File: src/popup/pages/Tracker.tsx
 
 Write the Application Tracker page.
@@ -928,7 +930,7 @@ All filtering/sorting happens in component state (no storage reads). Load once o
 ### Prompt 17 — Settings Page
 
 ```
-Context: Chrome Extension "Job Autofill". Tracker page is done.
+Context: Chrome Extension "Jobify". Tracker page is done.
 File: src/popup/pages/Settings.tsx
 
 Write the Settings page.
@@ -973,7 +975,7 @@ Implement the JSON export and import fully (not as stubs).
 ### Prompt 18 — Popup Communication Layer
 
 ```
-Context: Chrome Extension "Job Autofill". All popup pages are written.
+Context: Chrome Extension "Jobify". All popup pages are written.
 File: src/popup/hooks/useExtension.ts (create this file)
 
 Write a custom React hook that handles all communication between the popup and the extension (background + content scripts).
@@ -1012,7 +1014,7 @@ Also write a utility:
 ### Prompt 19 — Unknown Fields UI (Learn Mode)
 
 ```
-Context: Chrome Extension "Job Autofill". Popup UI is mostly done.
+Context: Chrome Extension "Jobify". Popup UI is mostly done.
 
 When triggerAutofill() returns unknown fields, the popup should help the user handle them.
 
@@ -1048,14 +1050,14 @@ Handle this message in src/content/index.ts:
 ### Prompt 20 — Popup Polish & Error States
 
 ```
-Context: Chrome Extension "Job Autofill". All popup pages and hooks are written.
+Context: Chrome Extension "Jobify". All popup pages and hooks are written.
 
 Add error handling and loading states throughout the popup.
 
 1. Create src/popup/components/Toast.tsx:
    A toast notification system. API:
    showToast(message: string, type: 'success' | 'error' | 'info', duration?: number)
-   
+
    Implementation: a fixed-position stack of toasts (bottom-right of popup). Auto-dismiss after duration (default 3000ms). Animate in/out with CSS transitions (Tailwind's transition classes).
    Export a useToast() hook and a <ToastContainer /> component.
 
@@ -1082,7 +1084,7 @@ All components: typed props, no any.
 ### Prompt 21 — Popup Entry HTML + Icons
 
 ```
-Context: Chrome Extension "Job Autofill".
+Context: Chrome Extension "Jobify".
 Files: popup/index.html, public/icons/
 
 1. Write popup/index.html:
@@ -1113,7 +1115,7 @@ Files: popup/index.html, public/icons/
 ### Prompt 22 — Resume Parser Integration (PDF.js)
 
 ```
-Context: Chrome Extension "Job Autofill".
+Context: Chrome Extension "Jobify".
 File: src/popup/utils/resumeParser.ts (create this file)
 External: pdfjs-dist (already installed)
 
@@ -1157,7 +1159,7 @@ Wire this into the Profile page:
 ### Prompt 23 — Portal Module: LinkedIn
 
 ```
-Context: Chrome Extension "Job Autofill".
+Context: Chrome Extension "Jobify".
 File: src/content/portals/linkedin.ts
 Dependencies: src/shared/types.ts, src/shared/utils.ts, src/content/scanner.ts, src/content/filler.ts
 
@@ -1208,7 +1210,7 @@ Note: LinkedIn frequently changes selectors. Write them as constants at the top 
 ### Prompt 24 — Portal Module: Naukri
 
 ```
-Context: Chrome Extension "Job Autofill".
+Context: Chrome Extension "Jobify".
 File: src/content/portals/naukri.ts
 
 Write the Naukri-specific portal module.
@@ -1253,7 +1255,7 @@ extractJobInfo():
 ### Prompt 25 — ATS Module: Greenhouse & Lever
 
 ```
-Context: Chrome Extension "Job Autofill".
+Context: Chrome Extension "Jobify".
 Files: src/content/ats/greenhouse.ts, src/content/ats/lever.ts
 
 Write ATS-specific modules for Greenhouse and Lever. These are the two most common ATS platforms.
@@ -1262,16 +1264,16 @@ GREENHOUSE (boards.greenhouse.io):
 
 Export class GreenhouseATS:
   isApplicable(): Check URL contains 'greenhouse.io'
-  
+
   handleApplication(profile: UserProfile, settings: AppSettings): Promise<FillResult>
-  
+
   Greenhouse form structure:
   - Standard HTML form (not SPA) — one long page or a few sections
   - Fields have clear labels associated via <label for="...">
   - File upload for resume: id="resume" — skip, flag as manual
   - Cover letter: id="cover_letter" textarea
   - Custom questions: section with class "custom-fields" — scan these with generic scanner
-  
+
   Use the generic scanner + filler for most fields.
   Greenhouse-specific overrides:
   - Phone field format: may expect "(xxx) xxx-xxxx" US format even for Indian companies — fill raw, let validation catch it
@@ -1281,9 +1283,9 @@ LEVER (jobs.lever.co):
 
 Export class LeverATS:
   isApplicable(): Check URL contains 'lever.co'
-  
+
   handleApplication(profile: UserProfile, settings: AppSettings): Promise<FillResult>
-  
+
   Lever form structure:
   - React-based SPA — fields are controlled components
   - Critical: must use simulateUserInput (React onChange simulation) or values won't register
@@ -1291,7 +1293,7 @@ Export class LeverATS:
   - Fields: name, email, phone, org (current company), urls (linkedin, github, portfolio, others)
   - Resume: file upload — skip
   - Additional info (cover): textarea with id="additional"
-  
+
   Lever-specific field IDs (hardcoded, they're consistent):
   name: input[name="name"]
   email: input[name="email"]
@@ -1306,6 +1308,7 @@ Both classes should call the generic scanner for any fields not handled by their
 ---
 
 ## PHASE 3 — Intelligence Layer
+
 **Goal:** Self-learning field memory, cover letter variable system, per-portal detection.
 **Duration:** ~2–3 hours
 **Prompts:** 26–35
@@ -1315,7 +1318,7 @@ Both classes should call the generic scanner for any fields not handled by their
 ### Prompt 26 — Learned Fields Engine
 
 ```
-Context: Chrome Extension "Job Autofill". Phase 2 complete.
+Context: Chrome Extension "Jobify". Phase 2 complete.
 Files: Modify src/content/matcher.ts, src/shared/storage.ts
 
 Upgrade the field learning system.
@@ -1351,7 +1354,7 @@ Changes to make:
 ### Prompt 27 — Cover Letter Variable Expander
 
 ```
-Context: Chrome Extension "Job Autofill".
+Context: Chrome Extension "Jobify".
 File: src/shared/coverLetterEngine.ts (create this file)
 
 Write an enhanced cover letter interpolation engine.
@@ -1371,12 +1374,12 @@ Variables supported:
 
 Export:
   expandCoverLetter(template: CoverLetterTemplate, profile: UserProfile, pageContext: { company: string, jobTitle: string }): string
-  
+
   Implementation:
   - Replace all {{variable}} occurrences (case-insensitive, allow spaces inside braces)
   - If a variable has no value in profile (empty string), replace with [VARIABLE_NAME] so user knows what's missing
   - Never silently remove a variable — always indicate what was missing
-  
+
   validateTemplate(template: string): { valid: boolean, missingVariables: string[], unknownVariables: string[] }
   - Returns which variables are used but not in supported list (typos)
   - Returns which profile fields are empty for variables used
@@ -1391,7 +1394,7 @@ Export:
 ### Prompt 28 — Multi-Page Form State Machine
 
 ```
-Context: Chrome Extension "Job Autofill".
+Context: Chrome Extension "Jobify".
 File: src/content/formStateMachine.ts (create this file)
 
 Write a state machine that manages the multi-page form filling process.
@@ -1415,11 +1418,11 @@ Export:
     pageNumber: number
     totalFilled: number
     totalUnknown: FormField[]
-    
+
     start(profile: UserProfile, settings: AppSettings): void
     continue(): void  // called when user clicks "Continue" from popup after reviewing unknowns
     stop(): void
-    
+
     onStateChange(cb: (state: FormState, data: unknown) => void): void
   }
 
@@ -1433,7 +1436,7 @@ Use this state machine in src/content/index.ts to orchestrate the autofill flow 
 ### Prompt 29 — Site-Specific Selector Registry
 
 ```
-Context: Chrome Extension "Job Autofill".
+Context: Chrome Extension "Jobify".
 File: src/shared/selectorRegistry.ts (create this file)
 
 Job portals change their DOM selectors frequently, breaking the extension. Centralise all selectors in one registry that is easy to update.
@@ -1470,7 +1473,7 @@ This makes the extension much more resilient to site updates.
 ### Prompt 30 — Auto-Logger & Application Tracker Backend
 
 ```
-Context: Chrome Extension "Job Autofill".
+Context: Chrome Extension "Jobify".
 File: src/content/autoLogger.ts (create this file)
 Also modify: src/background/index.ts
 
@@ -1510,14 +1513,14 @@ Deduplication: before logging, check if an application with the same company + r
 ### Prompt 31 — Workday ATS Module
 
 ```
-Context: Chrome Extension "Job Autofill".
+Context: Chrome Extension "Jobify".
 File: src/content/ats/workday.ts
 
 Write the Workday ATS module. Workday is the hardest ATS to handle — it uses a complex React/Angular app with non-standard form controls.
 
 Export class WorkdayATS:
   isApplicable(): boolean — URL contains 'myworkdayjobs.com' or 'workday.com'
-  
+
   handleApplication(profile: UserProfile, settings: AppSettings): Promise<FillResult>
 
 Workday-specific challenges and how to handle them:
@@ -1552,7 +1555,7 @@ Add 200ms delays between interactions (Workday's app needs time to update state)
 ### Prompt 32 — Security Hardening
 
 ```
-Context: Chrome Extension "Job Autofill". Core features complete.
+Context: Chrome Extension "Jobify". Core features complete.
 
 Apply security hardening across the entire codebase.
 
@@ -1596,7 +1599,7 @@ Write a src/shared/security.ts file with: validateMessage(), sanitizeString(), v
 ### Prompt 33 — Error Reporting & Debug Mode
 
 ```
-Context: Chrome Extension "Job Autofill".
+Context: Chrome Extension "Jobify".
 File: src/shared/logger.ts (create this file)
 
 Write a logging system for debugging without exposing sensitive data.
@@ -1638,7 +1641,7 @@ Add "Copy diagnostic report" button to Settings page. User can paste this when r
 ### Prompt 34 — Performance Optimisation
 
 ```
-Context: Chrome Extension "Job Autofill". Core features complete.
+Context: Chrome Extension "Jobify". Core features complete.
 
 Optimise the extension for performance.
 
@@ -1674,7 +1677,7 @@ Optimise the extension for performance.
 ### Prompt 35 — Unit Tests (Phase 1-3 Coverage)
 
 ```
-Context: Chrome Extension "Job Autofill". Phases 1-3 complete.
+Context: Chrome Extension "Jobify". Phases 1-3 complete.
 Files: src/**/*.test.ts
 
 Write comprehensive unit tests using Vitest.
@@ -1717,6 +1720,7 @@ Target: 80% coverage on src/shared/**, 70% on src/content/**
 ---
 
 ## PHASE 4 — Portal Expansion & Robustness
+
 **Goal:** Wellfound + Instahyre modules, resilience improvements, selector update mechanism.
 **Duration:** ~2 hours
 **Prompts:** 36–45
@@ -1726,7 +1730,7 @@ Target: 80% coverage on src/shared/**, 70% on src/content/**
 ### Prompt 36 — Wellfound & Instahyre Modules
 
 ```
-Context: Chrome Extension "Job Autofill". Phase 3 complete.
+Context: Chrome Extension "Jobify". Phase 3 complete.
 Files: src/content/portals/wellfound.ts, src/content/portals/instahyre.ts
 
 WELLFOUND (wellfound.com):
@@ -1767,7 +1771,7 @@ Both should return FillResult.
 ### Prompt 37 — Selector Self-Healing
 
 ```
-Context: Chrome Extension "Job Autofill".
+Context: Chrome Extension "Jobify".
 File: src/content/selectorHealer.ts (create this file)
 
 When a known selector fails (returns null), attempt to find the element using heuristics.
@@ -1806,7 +1810,7 @@ In Settings page, add a "Selector Health" debug section (only visible when debug
 ### Prompt 38 — Keyboard Shortcuts
 
 ```
-Context: Chrome Extension "Job Autofill".
+Context: Chrome Extension "Jobify".
 Files: manifest.json, src/background/index.ts, src/popup/App.tsx
 
 Add keyboard shortcuts for power users.
@@ -1835,7 +1839,7 @@ Also add: when the popup opens, focus the "Auto-fill this page" button so user c
 ### Prompt 39 — Onboarding Flow
 
 ```
-Context: Chrome Extension "Job Autofill".
+Context: Chrome Extension "Jobify".
 File: src/popup/pages/Onboarding.tsx (create this file)
 
 Write a first-run onboarding experience shown after extension install.
@@ -1873,7 +1877,7 @@ In App.tsx: if !settings.onboardingComplete, show Onboarding instead of main app
 ### Prompt 40 — Data Export & Backup
 
 ```
-Context: Chrome Extension "Job Autofill".
+Context: Chrome Extension "Jobify".
 File: Already partially written in Settings.tsx (Prompt 17). Expand this now.
 
 Write a complete backup/restore system.
@@ -1920,7 +1924,7 @@ Write the CSV export function in src/shared/utils.ts as:
 ### Prompt 41 — Context Menu Integration
 
 ```
-Context: Chrome Extension "Job Autofill".
+Context: Chrome Extension "Jobify".
 Files: manifest.json, src/background/index.ts
 
 Add right-click context menu items for quick actions on job pages.
@@ -1934,7 +1938,7 @@ Add right-click context menu items for quick actions on job pages.
      contexts: ["page"],
      documentUrlPatterns: ["https://www.linkedin.com/*", "https://www.naukri.com/*", "https://wellfound.com/*", "https://www.instahyre.com/*", "https://*.greenhouse.io/*", "https://*.lever.co/*", "https://*.myworkdayjobs.com/*"]
    })
-   
+
    chrome.contextMenus.create({
      id: "log-application",
      title: "Log this application manually",
@@ -1958,7 +1962,7 @@ Add right-click context menu items for quick actions on job pages.
 ### Prompt 42 — Popup UX Refinements
 
 ```
-Context: Chrome Extension "Job Autofill". Most features complete.
+Context: Chrome Extension "Jobify". Most features complete.
 
 Polish the popup UX.
 
@@ -1994,7 +1998,7 @@ Polish the popup UX.
 ### Prompt 43 — E2E Tests with Playwright
 
 ```
-Context: Chrome Extension "Job Autofill".
+Context: Chrome Extension "Jobify".
 File: tests/e2e/ (create directory)
 
 Write E2E tests using Playwright that load the actual extension.
@@ -2038,7 +2042,7 @@ Add npm script: "test:e2e": playwright test
 ### Prompt 44 — Manifest & Store Preparation
 
 ```
-Context: Chrome Extension "Job Autofill".
+Context: Chrome Extension "Jobify".
 
 Prepare for Chrome Web Store submission (not submitting yet — just making it compliant).
 
@@ -2055,7 +2059,7 @@ Prepare for Chrome Web Store submission (not submitting yet — just making it c
      * Does it collect user data? No
      * Does it use remote code? No
      * Does it use a server? No
-   
+
 3. Update popup's About section with:
    - Privacy policy text (inline, not a separate page): "All your data is stored locally on your device using Chrome's storage API. Nothing is ever sent to any server. We have no servers."
    - MIT license note
@@ -2075,7 +2079,7 @@ Prepare for Chrome Web Store submission (not submitting yet — just making it c
 ### Prompt 45 — Final QA Checklist Implementation
 
 ```
-Context: Chrome Extension "Job Autofill". All phases nearly complete.
+Context: Chrome Extension "Jobify". All phases nearly complete.
 
 Perform a systematic QA pass.
 
@@ -2112,6 +2116,7 @@ Fix any issues found. Report what was fixed.
 ---
 
 ## PHASE 5 — Future Features (Roadmap Prompts)
+
 **Goal:** AI cover letters, job discovery, sharing. Build these after Phase 4 is stable.
 **Duration:** Variable
 **Prompts:** 46–55
@@ -2121,7 +2126,7 @@ Fix any issues found. Report what was fixed.
 ### Prompt 46 — AI Cover Letter Integration (When API Key Available)
 
 ```
-Context: Chrome Extension "Job Autofill". Phase 4 complete. User now has an API key.
+Context: Chrome Extension "Jobify". Phase 4 complete. User now has an API key.
 File: src/shared/aiEngine.ts (create this file)
 
 Add optional AI-powered cover letter generation using the Anthropic Claude API.
@@ -2138,7 +2143,7 @@ This feature is OFF by default and only activates when user provides an API key 
    - Save button
 
 3. Write generateCoverLetter(jobDescription: string, profile: UserProfile, apiKey: string): Promise<string>
-   
+
    For Anthropic:
    POST https://api.anthropic.com/v1/messages
    Headers: x-api-key: apiKey, anthropic-version: 2023-06-01
@@ -2157,7 +2162,7 @@ Security: API key must never appear in logs. Validate it's in expected format be
 ### Prompt 47 — Job Discovery Feed
 
 ```
-Context: Chrome Extension "Job Autofill". Phase 4 complete.
+Context: Chrome Extension "Jobify". Phase 4 complete.
 File: src/popup/pages/Discover.tsx (create this file), src/background/jobFetcher.ts
 
 Add a fifth tab "Discover" that shows matching jobs from public RSS/JSON feeds.
@@ -2185,7 +2190,7 @@ Add to manifest.json permissions: "alarms" (for periodic fetch)
 ### Prompt 48 — Shared Field Dictionary (Community)
 
 ```
-Context: Chrome Extension "Job Autofill". Phase 4 complete.
+Context: Chrome Extension "Jobify". Phase 4 complete.
 
 Design a system for users to share their learned field mappings with the community.
 
@@ -2215,7 +2220,7 @@ Note: This is a design + stub implementation. The actual GitHub file and contrib
 ### Prompt 49 — Analytics Dashboard (Local Only)
 
 ```
-Context: Chrome Extension "Job Autofill".
+Context: Chrome Extension "Jobify".
 File: src/popup/pages/Analytics.tsx (optional 6th tab)
 
 Build a local analytics dashboard from the application tracker data.
@@ -2244,7 +2249,7 @@ Add as an optional 6th tab "Analytics" (shown only if applications.length > 10, 
 ### Prompt 50 — Publish Preparation & Documentation
 
 ```
-Context: Chrome Extension "Job Autofill". All phases complete.
+Context: Chrome Extension "Jobify". All phases complete.
 
 Final publication preparation.
 
@@ -2285,21 +2290,26 @@ The extension is ready to ship.
 ## Cursor-Specific Tips (Read Before Starting)
 
 **Before each prompt:**
+
 - Open the relevant file(s) in Cursor editor (Cmd+P to open)
 - Use Cmd+L to open AI panel with file context
 - Say "Read the open files first" if Cursor seems to not have context
 
 **If Cursor hallucinates a library:**
+
 - Correct: "That library doesn't exist. Use only: [list from package.json]"
 
 **If Cursor generates TypeScript errors:**
+
 - Paste the tsc error output and say: "Fix these TypeScript errors without changing the function signatures or types"
 
 **Context management (long sessions):**
+
 - Every 10 prompts, start a new Cursor conversation
-- Begin with: "I'm building a Chrome Extension called Job Autofill. The architecture is [paste project structure]. The last thing I implemented was [X]. Now I need to..."
+- Begin with: "I'm building a Chrome Extension called Jobify. The architecture is [paste project structure]. The last thing I implemented was [X]. Now I need to..."
 
 **Code review prompt (use after every phase):**
+
 ```
 Review all the files we've written in this phase for:
 1. TypeScript errors (strict mode)
@@ -2312,6 +2322,7 @@ List issues only — do not fix yet.
 ```
 
 **When stuck:**
+
 ```
 The following code isn't working: [paste code]
 Error: [paste error]
@@ -2322,4 +2333,4 @@ Fix only this specific issue. Do not rewrite unrelated code.
 
 ---
 
-*Total: 50 prompts across 5 phases. Estimated development time with Cursor: 15–20 hours.*
+_Total: 50 prompts across 5 phases. Estimated development time with Cursor: 15–20 hours._

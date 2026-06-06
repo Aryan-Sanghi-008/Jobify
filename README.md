@@ -1,4 +1,4 @@
-# Job Autofill
+# Jobify
 
 Chrome extension (Manifest V3) that auto-fills job application forms using a saved profile, learned field mappings, and cover letter templates.
 
