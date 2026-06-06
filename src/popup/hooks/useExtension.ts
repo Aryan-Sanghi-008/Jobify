@@ -11,7 +11,11 @@ import type {
   ProfileIncompleteResponse,
   TriggerAutofillResponse,
 } from '@/shared/types';
-import { isAutofillablePage } from '@/shared/pageInfo';
+import {
+  buildPageInfoFromTabUrl,
+  isAutofillablePage,
+  isValidPageInfoResponse,
+} from '@/shared/pageInfo';
 import { saveLastFillResult } from '@/shared/storage';
 import { hashString, normalizeLabel } from '@/shared/utils';
 
@@ -118,14 +122,33 @@ function delay(ms: number): Promise<void> {
 }
 
 async function fetchPageInfo(): Promise<PageInfoResponse | null> {
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: 'GET_ACTIVE_TAB_PAGE_INFO',
+    });
+    if (isValidPageInfoResponse(response)) {
+      return response;
+    }
+  } catch {
+    // Fall back to direct tab messaging below.
+  }
+
   for (let attempt = 0; attempt < PAGE_INFO_MAX_ATTEMPTS; attempt += 1) {
     try {
-      return await sendToActiveTab<PageInfoResponse>({ type: 'GET_PAGE_INFO' });
+      const response = await sendToActiveTab<unknown>({ type: 'GET_PAGE_INFO' });
+      if (isValidPageInfoResponse(response)) {
+        return response;
+      }
     } catch {
       if (attempt < PAGE_INFO_MAX_ATTEMPTS - 1) {
         await delay(PAGE_INFO_RETRY_DELAY_MS);
       }
     }
+  }
+
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (tab?.url) {
+    return buildPageInfoFromTabUrl(tab.url);
   }
 
   return null;
@@ -138,16 +161,24 @@ async function sendToActiveTab<T>(message: unknown): Promise<T> {
     throw new Error('No active tab');
   }
 
-  try {
-    return await sendTabMessage<T>(tabId, message);
-  } catch (firstError) {
+  let lastError = new Error('Failed to reach content script');
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
-      await injectContentScript(tabId);
       return await sendTabMessage<T>(tabId, message);
-    } catch {
-      throw firstError instanceof Error ? firstError : new Error('Failed to reach content script');
+    } catch (error) {
+      lastError = error instanceof Error ? error : lastError;
+
+      try {
+        await injectContentScript(tabId);
+        await delay(250 * (attempt + 1));
+      } catch {
+        // Continue retrying the message even if injection fails.
+      }
     }
   }
+
+  throw lastError;
 }
 
 export interface UseExtensionResult {

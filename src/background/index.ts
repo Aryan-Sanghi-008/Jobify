@@ -40,6 +40,10 @@ import type {
   PortalName,
   TriggerAutofillResponse,
 } from '@/shared/types';
+import {
+  buildPageInfoFromTabUrl,
+  isValidPageInfoResponse,
+} from '@/shared/pageInfo';
 import { detectPortal, generateId } from '@/shared/utils';
 
 const MESSAGE_TIMEOUT_MS = 5000;
@@ -391,6 +395,8 @@ async function handleMessage(
     }
     case 'FETCH_COMMUNITY_FIELDS':
       return runCommunityFieldsFetch();
+    case 'GET_ACTIVE_TAB_PAGE_INFO':
+      return getActiveTabPageInfo();
     case 'AUTO_APPLY_JOB':
       return autoApplyToJob(message.url);
     default: {
@@ -467,9 +473,40 @@ async function ensureContentScript(tabId: number): Promise<void> {
     files,
   });
 
-  if (!(await isContentScriptReady(tabId))) {
-    throw new Error('Content script did not respond after injection');
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await delay(200 * (attempt + 1));
+    if (await isContentScriptReady(tabId)) {
+      return;
+    }
   }
+
+  throw new Error('Content script did not respond after injection');
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function getActiveTabPageInfo(): Promise<PageInfoResponse | null> {
+  const tab = await getActiveTab();
+
+  if (!tab?.id || !tab.url || !isAutofillableUrl(tab.url)) {
+    return null;
+  }
+
+  try {
+    await ensureContentScript(tab.id);
+    const info = await sendTabMessage<unknown>(tab.id, { type: 'GET_PAGE_INFO' });
+    if (isValidPageInfoResponse(info)) {
+      return info;
+    }
+  } catch {
+    // Fall back to URL-based detection below.
+  }
+
+  return buildPageInfoFromTabUrl(tab.url);
 }
 
 async function showShortcutNotification(

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { isAutofillablePage } from '@/shared/pageInfo';
+import {
+  buildPageInfoFromTabUrl,
+  isAutofillablePage,
+  isLikelyApplicationUrl,
+} from '@/shared/pageInfo';
 import type { PageInfoResponse } from '@/shared/types';
 
 function makePageInfo(
@@ -35,5 +39,39 @@ describe('isAutofillablePage', () => {
 
   it('blocks generic pages without application fields', () => {
     expect(isAutofillablePage(makePageInfo({ portal: 'generic' }))).toBe(false);
+  });
+});
+
+describe('isLikelyApplicationUrl', () => {
+  it('detects Workday apply URLs', () => {
+    expect(
+      isLikelyApplicationUrl(
+        'https://qualys.wd5.myworkdayjobs.com/en-US/Careers/job/Pune/Sr-Software-Engineer_R0002473/apply?source=LinkedIn',
+      ),
+    ).toBe(true);
+  });
+
+  it('ignores restricted browser URLs', () => {
+    expect(isLikelyApplicationUrl('chrome://extensions')).toBe(false);
+  });
+});
+
+describe('buildPageInfoFromTabUrl', () => {
+  it('returns Workday metadata for Qualys apply pages', () => {
+    const info = buildPageInfoFromTabUrl(
+      'https://qualys.wd5.myworkdayjobs.com/en-US/Careers/job/Pune/Sr-Software-Engineer_R0002473/apply?source=LinkedIn',
+    );
+
+    expect(info).toEqual({
+      company: '',
+      jobTitle: '',
+      portal: 'workday',
+      hasApplicationForm: true,
+      formFieldCount: 0,
+    });
+  });
+
+  it('returns null for unrelated pages', () => {
+    expect(buildPageInfoFromTabUrl('https://example.com/blog/post')).toBeNull();
   });
 });

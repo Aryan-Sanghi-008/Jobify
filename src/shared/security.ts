@@ -27,6 +27,7 @@ const MESSAGE_TYPES: MessageType[] = [
   'AUTO_APPLY_JOB',
   'FETCH_COMMUNITY_FIELDS',
   'GET_COMMUNITY_FIELDS',
+  'GET_ACTIVE_TAB_PAGE_INFO',
 ];
 
 const CONTENT_MESSAGE_TYPES: ContentMessageType[] = [
@@ -431,6 +432,9 @@ export function validateMessage(message: unknown): message is ExtensionMessage {
       );
     case 'GET_DISCOVERED_JOBS':
     case 'FETCH_DISCOVERED_JOBS':
+    case 'GET_COMMUNITY_FIELDS':
+    case 'FETCH_COMMUNITY_FIELDS':
+    case 'GET_ACTIVE_TAB_PAGE_INFO':
       return true;
     case 'AUTO_APPLY_JOB':
       return typeof message.url === 'string' && URL_PATTERN.test(message.url);

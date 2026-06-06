@@ -523,7 +523,8 @@ export type MessageType =
   | 'FETCH_DISCOVERED_JOBS'
   | 'AUTO_APPLY_JOB'
   | 'FETCH_COMMUNITY_FIELDS'
-  | 'GET_COMMUNITY_FIELDS';
+  | 'GET_COMMUNITY_FIELDS'
+  | 'GET_ACTIVE_TAB_PAGE_INFO';
 
 /** Message types handled by the content script. */
 export type ContentMessageType =
@@ -570,6 +571,11 @@ export interface GetSettingsMessage {
 /** Health-check ping from a content script. */
 export interface PingMessage {
   type: 'PING';
+}
+
+/** Request page metadata for the user's active tab (popup bootstrap). */
+export interface GetActiveTabPageInfoMessage {
+  type: 'GET_ACTIVE_TAB_PAGE_INFO';
 }
 
 /** Notification that a job portal was detected on the active tab. */
@@ -758,7 +764,8 @@ export type ExtensionMessage =
   | FetchDiscoveredJobsMessage
   | AutoApplyJobMessage
   | GetCommunityFieldsMessage
-  | FetchCommunityFieldsMessage;
+  | FetchCommunityFieldsMessage
+  | GetActiveTabPageInfoMessage;
 
 /** Discriminated union of messages sent to the content script. */
 export type ContentScriptMessage =

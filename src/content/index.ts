@@ -445,14 +445,26 @@ interface AutofillModules {
   }
 
   async function handleGetPageInfo(): Promise<PageInfoResponse> {
+    const portal = detectPortal(window.location.href);
     const pageContext = await getPageContext();
+
+    if (portal !== 'generic') {
+      return {
+        company: pageContext.company,
+        jobTitle: pageContext.jobTitle,
+        portal,
+        hasApplicationForm: true,
+        formFieldCount: 0,
+      };
+    }
+
     const scanResult = scanPageFieldsWithMeta();
     const formFieldCount = scanResult.fields.length;
 
     return {
       company: pageContext.company,
       jobTitle: pageContext.jobTitle,
-      portal: detectPortal(window.location.href),
+      portal,
       hasApplicationForm: formFieldCount > 0,
       formFieldCount,
     };

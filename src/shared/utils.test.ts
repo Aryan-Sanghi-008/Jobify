@@ -97,6 +97,10 @@ describe('detectPortal', () => {
     ['https://boards.greenhouse.io/acme/jobs/123', 'greenhouse'],
     ['https://jobs.lever.co/acme/123', 'lever'],
     ['https://acme.wd5.myworkdayjobs.com/en-US/job/123', 'workday'],
+    [
+      'https://qualys.wd5.myworkdayjobs.com/en-US/Careers/job/Pune/Sr-Software-Engineer_R0002473/apply?source=LinkedIn',
+      'workday',
+    ],
     ['https://www.workday.com/en-us/products.html', 'workday'],
   ])('detects %s as expected portal', (url, expected) => {
     expect(detectPortal(url)).toBe(expected);
