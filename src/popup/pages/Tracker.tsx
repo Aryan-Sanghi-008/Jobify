@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import Spinner from '@/popup/components/Spinner';
 import {
   getApplications,
   updateApplicationNotes,
@@ -374,7 +375,7 @@ export default function Tracker() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-16">
-        <span className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-r-transparent" />
+        <Spinner size="md" className="text-blue-600" />
       </div>
     );
   }

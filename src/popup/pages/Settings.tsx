@@ -6,6 +6,9 @@ import {
   type ChangeEvent,
   type ReactNode,
 } from 'react';
+import ConfirmDialog from '@/popup/components/ConfirmDialog';
+import Spinner from '@/popup/components/Spinner';
+import { useToast } from '@/popup/components/Toast';
 import { VERSION } from '@/shared/constants';
 import {
   clearAllData,
@@ -176,31 +179,18 @@ export default function Settings() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [coverLetters, setCoverLetters] = useState<CoverLetterTemplate[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [toast, setToast] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
 
   const importInputRef = useRef<HTMLInputElement>(null);
-  const toastTimerRef = useRef<number | null>(null);
-
-  const showToast = useCallback((message: string) => {
-    if (toastTimerRef.current !== null) {
-      window.clearTimeout(toastTimerRef.current);
-    }
-
-    setToast(message);
-    toastTimerRef.current = window.setTimeout(() => {
-      setToast(null);
-      toastTimerRef.current = null;
-    }, 2200);
-  }, []);
+  const { showToast } = useToast();
 
   const persistSettings = useCallback(
     async (updates: Partial<AppSettings>) => {
       await saveSettings(updates);
       setSettings((current) => (current ? { ...current, ...updates } : current));
-      showToast('Saved');
+      showToast('Saved', 'success');
     },
     [showToast],
   );
@@ -215,12 +205,6 @@ export default function Settings() {
       setCoverLetters(templates);
       setIsLoading(false);
     })();
-
-    return () => {
-      if (toastTimerRef.current !== null) {
-        window.clearTimeout(toastTimerRef.current);
-      }
-    };
   }, []);
 
   const handleExport = async () => {
@@ -248,7 +232,7 @@ export default function Settings() {
     anchor.download = `job-autofill-backup-${date}.json`;
     anchor.click();
     URL.revokeObjectURL(url);
-    showToast('Data exported');
+    showToast('Data exported', 'success');
   };
 
   const handleImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -294,7 +278,7 @@ export default function Settings() {
   if (isLoading || !settings) {
     return (
       <div className="flex items-center justify-center py-16">
-        <span className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-r-transparent" />
+        <Spinner size="md" className="text-blue-600" />
       </div>
     );
   }
@@ -393,37 +377,13 @@ export default function Settings() {
             <p className="text-xs text-red-600">{importError}</p>
           ) : null}
 
-          {showClearConfirm ? (
-            <div className="rounded-lg border border-red-200 bg-red-50 p-3">
-              <p className="text-sm font-medium text-red-800">
-                Clear all extension data? This cannot be undone.
-              </p>
-              <div className="mt-2 flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => void handleClearData()}
-                  className="flex-1 rounded-md bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
-                >
-                  Yes, clear everything
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowClearConfirm(false)}
-                  className="flex-1 rounded-md border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-white"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setShowClearConfirm(true)}
-              className="w-full rounded-lg border border-red-300 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
-            >
-              Clear all data
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => setShowClearConfirm(true)}
+            className="w-full rounded-lg border border-red-300 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
+          >
+            Clear all data
+          </button>
         </div>
       </SettingsSection>
 
@@ -451,13 +411,14 @@ export default function Settings() {
         </div>
       </SettingsSection>
 
-      {toast ? (
-        <div
-          role="status"
-          className="pointer-events-none fixed bottom-16 left-1/2 z-50 -translate-x-1/2 rounded-full bg-gray-900 px-4 py-1.5 text-xs font-medium text-white shadow-lg"
-        >
-          {toast}
-        </div>
+      {showClearConfirm ? (
+        <ConfirmDialog
+          title="Clear all data"
+          message="Clear all extension data? This cannot be undone."
+          confirmLabel="Yes, clear everything"
+          onConfirm={() => void handleClearData()}
+          onCancel={() => setShowClearConfirm(false)}
+        />
       ) : null}
     </div>
   );

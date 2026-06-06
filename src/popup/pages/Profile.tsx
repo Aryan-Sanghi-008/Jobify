@@ -7,6 +7,8 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
+import Spinner from '@/popup/components/Spinner';
+import { useToast } from '@/popup/components/Toast';
 import { DEFAULT_PROFILE, getProfile, saveProfile } from '@/shared/storage';
 import type {
   EducationEntry,
@@ -22,7 +24,6 @@ type SectionId =
   | 'skills';
 
 type FieldErrors = Record<string, string>;
-type ToastMessage = 'saved' | 'resume-parsed' | null;
 
 const SECTIONS: { id: SectionId; label: string }[] = [
   { id: 'personal', label: 'Personal Info' },
@@ -286,26 +287,13 @@ export default function Profile() {
     () => new Set(['personal']),
   );
   const [preferredLocationsText, setPreferredLocationsText] = useState('');
-  const [toast, setToast] = useState<ToastMessage>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const profileRef = useRef(profile);
   const resumeInputRef = useRef<HTMLInputElement>(null);
-  const toastTimerRef = useRef<number | null>(null);
+  const { showToast } = useToast();
 
   profileRef.current = profile;
-
-  const showToast = useCallback((message: Exclude<ToastMessage, null>) => {
-    if (toastTimerRef.current !== null) {
-      window.clearTimeout(toastTimerRef.current);
-    }
-
-    setToast(message);
-    toastTimerRef.current = window.setTimeout(() => {
-      setToast(null);
-      toastTimerRef.current = null;
-    }, 2200);
-  }, []);
 
   const updateProfile = useCallback((updater: (current: UserProfile) => UserProfile) => {
     setProfile((current) => {
@@ -328,7 +316,7 @@ export default function Profile() {
 
   const persistProfile = useCallback(async () => {
     await saveProfile(profileRef.current);
-    showToast('saved');
+    showToast('Saved', 'success');
   }, [showToast]);
 
   const handleValidatedBlur = useCallback(
@@ -353,12 +341,6 @@ export default function Profile() {
       setPreferredLocationsText(merged.professional.preferredLocations.join(', '));
       setIsLoading(false);
     })();
-
-    return () => {
-      if (toastTimerRef.current !== null) {
-        window.clearTimeout(toastTimerRef.current);
-      }
-    };
   }, []);
 
   const toggleSection = (sectionId: SectionId) => {
@@ -467,13 +449,13 @@ export default function Profile() {
     clearFieldError('resume');
 
     // Phase 3: parse PDF with pdfjs-dist and populate profile fields.
-    showToast('resume-parsed');
+    showToast('Resume parsed', 'success');
   };
 
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-16">
-        <span className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-r-transparent" />
+        <Spinner size="md" className="text-blue-600" />
       </div>
     );
   }
@@ -1090,15 +1072,6 @@ export default function Profile() {
           ) : null}
         </AccordionSection>
       ))}
-
-      {toast ? (
-        <div
-          role="status"
-          className="pointer-events-none fixed bottom-16 left-1/2 z-50 -translate-x-1/2 rounded-full bg-gray-900 px-4 py-1.5 text-xs font-medium text-white shadow-lg"
-        >
-          {toast === 'saved' ? 'Saved' : 'Resume parsed'}
-        </div>
-      ) : null}
     </div>
   );
 }

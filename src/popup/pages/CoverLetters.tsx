@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Spinner from '@/popup/components/Spinner';
+import { useToast } from '@/popup/components/Toast';
 import {
   deleteCoverLetter,
   getCoverLetters,
@@ -56,25 +58,12 @@ export default function CoverLetters() {
   const [draft, setDraft] = useState<EditorDraft | null>(null);
   const [yourName, setYourName] = useState('Your Name');
   const [errors, setErrors] = useState<{ name?: string; body?: string }>({});
-  const [toast, setToast] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const toastTimerRef = useRef<number | null>(null);
-
-  const showToast = useCallback((message: string) => {
-    if (toastTimerRef.current !== null) {
-      window.clearTimeout(toastTimerRef.current);
-    }
-
-    setToast(message);
-    toastTimerRef.current = window.setTimeout(() => {
-      setToast(null);
-      toastTimerRef.current = null;
-    }, 2200);
-  }, []);
+  const { showToast } = useToast();
 
   const loadDraftFromTemplate = useCallback((template: CoverLetterTemplate) => {
     setDraft({
@@ -111,12 +100,6 @@ export default function CoverLetters() {
 
       setIsLoading(false);
     })();
-
-    return () => {
-      if (toastTimerRef.current !== null) {
-        window.clearTimeout(toastTimerRef.current);
-      }
-    };
   }, [loadDraftFromTemplate, refreshTemplates]);
 
   const previewText = useMemo(() => {
@@ -203,7 +186,7 @@ export default function CoverLetters() {
     });
     setSelectedId(template.id);
     setIsSaving(false);
-    showToast('Template saved');
+    showToast('Template saved', 'success');
 
     if (coverLetters.length === 1 && !defaultTemplateId) {
       await saveSettings({ defaultCoverLetterId: template.id });
@@ -213,13 +196,13 @@ export default function CoverLetters() {
 
   const handleSetDefault = async () => {
     if (!draft?.id) {
-      showToast('Save the template first');
+      showToast('Save the template first', 'info');
       return;
     }
 
     await saveSettings({ defaultCoverLetterId: draft.id });
     setDefaultTemplateId(draft.id);
-    showToast('Set as default');
+    showToast('Set as default', 'success');
   };
 
   const handleDeleteTemplate = async (id: string) => {
@@ -240,7 +223,7 @@ export default function CoverLetters() {
     }
 
     loadDraftFromTemplate(coverLetters[0]);
-    showToast('Template deleted');
+    showToast('Template deleted', 'success');
   };
 
   const handleNewTemplate = () => {
@@ -256,7 +239,7 @@ export default function CoverLetters() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-16">
-        <span className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-r-transparent" />
+        <Spinner size="md" className="text-blue-600" />
       </div>
     );
   }
@@ -453,15 +436,6 @@ export default function CoverLetters() {
           ) : null}
         </section>
       </div>
-
-      {toast ? (
-        <div
-          role="status"
-          className="pointer-events-none fixed bottom-16 left-1/2 z-50 -translate-x-1/2 rounded-full bg-gray-900 px-4 py-1.5 text-xs font-medium text-white shadow-lg"
-        >
-          {toast}
-        </div>
-      ) : null}
     </div>
   );
 }

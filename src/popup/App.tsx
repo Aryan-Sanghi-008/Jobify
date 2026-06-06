@@ -1,15 +1,18 @@
 import {
   lazy,
   Suspense,
-  useCallback,
   useEffect,
   useMemo,
   useState,
   type ReactNode,
   type SVGProps,
 } from 'react';
+import ErrorBoundary from '@/popup/components/ErrorBoundary';
+import PageSkeleton from '@/popup/components/PageSkeleton';
+import ProfileEmptyState from '@/popup/components/ProfileEmptyState';
+import Spinner from '@/popup/components/Spinner';
 import { useExtension } from '@/popup/hooks/useExtension';
-import { getProfile } from '@/shared/storage';
+import { getApplications, getProfile } from '@/shared/storage';
 import type { UserProfile } from '@/shared/types';
 
 const Profile = lazy(() => import('./pages/Profile'));
@@ -35,16 +38,6 @@ const INPUT_CLASS =
 
 function isProfileComplete(profile: UserProfile | null): boolean {
   return profile !== null && profile.personal.email.trim() !== '';
-}
-
-function Spinner({ className = '' }: { className?: string }) {
-  return (
-    <span
-      className={`inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-r-transparent ${className}`}
-      role="status"
-      aria-label="Loading"
-    />
-  );
 }
 
 function IconUser(props: SVGProps<SVGSVGElement>) {
@@ -89,16 +82,42 @@ const TABS: TabConfig[] = [
   { id: 'settings', label: 'Settings', icon: IconSettings },
 ];
 
-function TabPanel({ tab }: { tab: TabId }) {
+interface TabPanelProps {
+  tab: TabId;
+  profileComplete: boolean;
+  onGoToProfile: () => void;
+}
+
+function TabPanel({ tab, profileComplete, onGoToProfile }: TabPanelProps) {
+  if (tab !== 'profile' && !profileComplete) {
+    return <ProfileEmptyState onGoToProfile={onGoToProfile} />;
+  }
+
   switch (tab) {
     case 'profile':
-      return <Profile />;
+      return (
+        <ErrorBoundary>
+          <Profile />
+        </ErrorBoundary>
+      );
     case 'cover-letters':
-      return <CoverLetters />;
+      return (
+        <ErrorBoundary>
+          <CoverLetters />
+        </ErrorBoundary>
+      );
     case 'tracker':
-      return <Tracker />;
+      return (
+        <ErrorBoundary>
+          <Tracker />
+        </ErrorBoundary>
+      );
     case 'settings':
-      return <Settings />;
+      return (
+        <ErrorBoundary>
+          <Settings />
+        </ErrorBoundary>
+      );
     default:
       return null;
   }
@@ -136,6 +155,7 @@ function ToggleRow({ label, checked, onChange }: ToggleRowProps) {
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabId>('profile');
   const [profileComplete, setProfileComplete] = useState(false);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [unknownDrafts, setUnknownDrafts] = useState<Record<string, UnknownFieldDraft>>({});
 
   const {
@@ -147,14 +167,15 @@ export default function App() {
     fillAllUnknownFields,
   } = useExtension();
 
-  const loadProfileStatus = useCallback(async () => {
-    const profile = await getProfile();
-    setProfileComplete(isProfileComplete(profile));
-  }, []);
-
   useEffect(() => {
-    void loadProfileStatus();
-  }, [loadProfileStatus]);
+    void Promise.all([getProfile(), getApplications()])
+      .then(([profile]) => {
+        setProfileComplete(isProfileComplete(profile));
+      })
+      .finally(() => {
+        setIsInitialLoading(false);
+      });
+  }, []);
 
   useEffect(() => {
     if (!lastResult?.unknown.length) {
@@ -237,7 +258,7 @@ export default function App() {
           >
             {isFilling ? (
               <>
-                <Spinner className="text-white" />
+                <Spinner size="sm" className="text-white" />
                 <span>Auto-filling…</span>
               </>
             ) : (
@@ -315,15 +336,23 @@ export default function App() {
       ) : null}
 
       <main className="flex-1 overflow-y-auto">
-        <Suspense
-          fallback={
-            <div className="flex h-full items-center justify-center py-12">
-              <Spinner className="h-6 w-6 text-blue-600" />
-            </div>
-          }
-        >
-          <TabPanel tab={activeTab} />
-        </Suspense>
+        {isInitialLoading ? (
+          <PageSkeleton />
+        ) : (
+          <Suspense
+            fallback={
+              <div className="flex h-full items-center justify-center py-12">
+                <Spinner size="md" className="text-blue-600" />
+              </div>
+            }
+          >
+            <TabPanel
+              tab={activeTab}
+              profileComplete={profileComplete}
+              onGoToProfile={() => setActiveTab('profile')}
+            />
+          </Suspense>
+        )}
       </main>
 
       <nav className="border-t border-gray-200 bg-gray-50">
