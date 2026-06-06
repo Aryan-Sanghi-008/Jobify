@@ -227,22 +227,34 @@ function isAutofillableUrl(url: string | undefined): boolean {
   );
 }
 
-async function ensureContentScript(tabId: number): Promise<void> {
+async function isContentScriptReady(tabId: number): Promise<boolean> {
   try {
-    await sendTabMessage(tabId, { type: 'PING' });
-    return;
+    const response = await sendTabMessage<unknown>(tabId, { type: 'GET_PAGE_INFO' });
+    return Boolean(response && typeof response === 'object');
   } catch {
-    const manifest = chrome.runtime.getManifest();
-    const files = manifest.content_scripts?.[0]?.js;
+    return false;
+  }
+}
 
-    if (!files?.length) {
-      throw new Error('Content script not configured');
-    }
+async function ensureContentScript(tabId: number): Promise<void> {
+  if (await isContentScriptReady(tabId)) {
+    return;
+  }
 
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      files,
-    });
+  const manifest = chrome.runtime.getManifest();
+  const files = manifest.content_scripts?.[0]?.js;
+
+  if (!files?.length) {
+    throw new Error('Content script not configured');
+  }
+
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files,
+  });
+
+  if (!(await isContentScriptReady(tabId))) {
+    throw new Error('Content script did not respond after injection');
   }
 }
 
