@@ -16,6 +16,7 @@ import {
 import type {
   AppSettings,
   ContentScriptMessage,
+  CoverLetterTemplate,
   FillCoverLetterMessage,
   FillCoverLetterResponse,
   FillSingleFieldMessage,
@@ -23,6 +24,7 @@ import type {
   FlatProfile,
   FormField,
   FormStatePayload,
+  GenerateCoverLetterResponse,
   LearnedField,
   LearnFieldMappingMessage,
   PageInfoResponse,
@@ -33,11 +35,15 @@ import type {
 import {
   detectPortal,
   extractCompanyFromPage,
+  extractJobDescriptionFromPage,
   extractJobTitleFromPage,
   interpolateCoverLetter,
   normalizeLabel,
   simulateUserInput,
 } from '@/shared/utils';
+
+const AI_COVER_LETTER_FALLBACK_TOAST =
+  'AI cover letter unavailable — using saved template.';
 
 const EXCESSIVE_FIELDS_WARNING =
   'This page has an unusual number of fields — autofill may be slow.';
@@ -118,6 +124,151 @@ interface AutofillModules {
     }
   }
 
+  function showUserToast(message: string): void {
+    const toast = document.createElement('div');
+    toast.textContent = message;
+    toast.setAttribute('role', 'status');
+    toast.style.cssText = [
+      'position:fixed',
+      'bottom:20px',
+      'right:20px',
+      'z-index:2147483647',
+      'max-width:320px',
+      'padding:12px 16px',
+      'border-radius:8px',
+      'background:#111827',
+      'color:#F9FAFB',
+      'font:14px/1.4 system-ui,sans-serif',
+      'box-shadow:0 10px 25px rgba(0,0,0,0.25)',
+    ].join(';');
+
+    document.body.appendChild(toast);
+    window.setTimeout(() => toast.remove(), 3000);
+  }
+
+  function isAiEnabled(settings: AppSettings): boolean {
+    return Boolean(settings.apiKey?.trim() && settings.aiProvider);
+  }
+
+  function getTemplateContent(
+    template: CoverLetterTemplate,
+    pageContext: { company: string; jobTitle: string },
+    profile: UserProfile,
+  ): string {
+    return interpolateCoverLetter(template.body, {
+      company_name: pageContext.company,
+      job_title: pageContext.jobTitle,
+      your_name: profile.personal.fullName,
+    });
+  }
+
+  async function resolveCoverLetterContent(
+    profile: UserProfile,
+    settings: AppSettings,
+    pageContext: { company: string; jobTitle: string },
+    coverLetters: CoverLetterTemplate[],
+    templateId?: string | null,
+  ): Promise<{ content: string | null; templateId?: string; usedAi: boolean; aiAttempted: boolean }> {
+    const resolvedTemplateId = templateId ?? settings.defaultCoverLetterId;
+    const template =
+      coverLetters.find((letter) => letter.id === resolvedTemplateId) ??
+      coverLetters[0];
+
+    if (!template) {
+      return { content: null, usedAi: false, aiAttempted: false };
+    }
+
+    let aiAttempted = false;
+
+    if (isAiEnabled(settings)) {
+      const jobDescription = extractJobDescriptionFromPage();
+      if (jobDescription) {
+        aiAttempted = true;
+
+        try {
+          const response = (await chrome.runtime.sendMessage({
+            type: 'GENERATE_COVER_LETTER',
+            jobDescription,
+          })) as GenerateCoverLetterResponse | undefined;
+
+          if (response?.text?.trim()) {
+            return {
+              content: response.text.trim(),
+              usedAi: true,
+              aiAttempted: true,
+            };
+          }
+        } catch {
+          // Fall through to template below.
+        }
+      }
+    }
+
+    return {
+      content: getTemplateContent(template, pageContext, profile),
+      templateId: template.id,
+      usedAi: false,
+      aiAttempted,
+    };
+  }
+
+  async function fillCoverLetterField(
+    field: HTMLTextAreaElement,
+    templateId?: string | null,
+  ): Promise<boolean> {
+    if (field.value.trim().length > 0) {
+      return false;
+    }
+
+    const [profile, settings, coverLetters] = await Promise.all([
+      getProfile(),
+      getAutofillData().then((data) => data.settings),
+      getCoverLetters(),
+    ]);
+
+    if (!profile) {
+      return false;
+    }
+
+    const pageContext = await getPageContext();
+    const resolved = await resolveCoverLetterContent(
+      profile,
+      settings,
+      pageContext,
+      coverLetters,
+      templateId,
+    );
+
+    if (!resolved.content) {
+      return false;
+    }
+
+    simulateUserInput(field, resolved.content);
+
+    if (resolved.usedAi) {
+      lastCoverLetterTemplateId = undefined;
+    } else {
+      if (resolved.templateId) {
+        lastCoverLetterTemplateId = resolved.templateId;
+      }
+
+      if (resolved.aiAttempted) {
+        showUserToast(AI_COVER_LETTER_FALLBACK_TOAST);
+      }
+    }
+
+    return true;
+  }
+
+  async function maybeAutoFillCoverLetter(): Promise<void> {
+    const { scanForCoverLetterField } = await loadAutofillModules();
+    const field = scanForCoverLetterField();
+
+    if (field instanceof HTMLTextAreaElement) {
+      await fillCoverLetterField(field);
+    }
+  }
+
   async function ensureFormStateMachine(): Promise<FormStateMachine> {
     const modules = await loadAutofillModules();
 
@@ -151,6 +302,7 @@ interface AutofillModules {
         },
         notifyComplete: () => {},
         broadcastState: broadcastFormState,
+        onAfterFill: maybeAutoFillCoverLetter,
       });
     }
 
@@ -166,28 +318,6 @@ interface AutofillModules {
       url: window.location.href,
     }),
   });
-
-  function showUserToast(message: string): void {
-    const toast = document.createElement('div');
-    toast.textContent = message;
-    toast.setAttribute('role', 'status');
-    toast.style.cssText = [
-      'position:fixed',
-      'bottom:20px',
-      'right:20px',
-      'z-index:2147483647',
-      'max-width:320px',
-      'padding:12px 16px',
-      'border-radius:8px',
-      'background:#111827',
-      'color:#F9FAFB',
-      'font:14px/1.4 system-ui,sans-serif',
-      'box-shadow:0 10px 25px rgba(0,0,0,0.25)',
-    ].join(';');
-
-    document.body.appendChild(toast);
-    window.setTimeout(() => toast.remove(), 3000);
-  }
 
   function deactivateAutofill(): void {
     formStateMachine?.stop();
@@ -266,32 +396,8 @@ interface AutofillModules {
       return { success: false, field_found: false };
     }
 
-    const [profile, settings, coverLetters] = await Promise.all([
-      getProfile(),
-      getAutofillData().then((data) => data.settings),
-      getCoverLetters(),
-    ]);
-
-    const templateId = message.templateId ?? settings.defaultCoverLetterId;
-    const template =
-      coverLetters.find((letter) => letter.id === templateId) ??
-      coverLetters[0];
-
-    if (!template) {
-      return { success: false, field_found: true };
-    }
-
-    const pageContext = await getPageContext();
-    const content = interpolateCoverLetter(template.body, {
-      company_name: pageContext.company,
-      job_title: pageContext.jobTitle,
-      your_name: profile?.personal.fullName ?? '',
-    });
-
-    simulateUserInput(field, content);
-    lastCoverLetterTemplateId = template.id;
-
-    return { success: true, field_found: true };
+    const success = await fillCoverLetterField(field, message.templateId);
+    return { success, field_found: true };
   }
 
   async function handleGetPageInfo(): Promise<PageInfoResponse> {

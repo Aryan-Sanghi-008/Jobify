@@ -40,4 +40,6 @@ export const E2E_DEFAULT_SETTINGS: AppSettings = {
   theme: 'system',
   debugMode: false,
   onboardingComplete: true,
+  apiKey: null,
+  aiProvider: null,
 };

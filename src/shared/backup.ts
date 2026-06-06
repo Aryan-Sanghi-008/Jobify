@@ -122,7 +122,14 @@ function isAppSettings(value: unknown): value is AppSettings {
     isTheme(value.theme) &&
     (value.debugMode === undefined || typeof value.debugMode === 'boolean') &&
     (value.onboardingComplete === undefined ||
-      typeof value.onboardingComplete === 'boolean')
+      typeof value.onboardingComplete === 'boolean') &&
+    (value.apiKey === undefined ||
+      value.apiKey === null ||
+      typeof value.apiKey === 'string') &&
+    (value.aiProvider === undefined ||
+      value.aiProvider === null ||
+      value.aiProvider === 'anthropic' ||
+      value.aiProvider === 'openai')
   );
 }
 
@@ -248,7 +255,7 @@ export async function buildBackupPayload(): Promise<BackupPayload> {
     coverLetters,
     applications,
     learnedFields,
-    settings,
+    settings: { ...settings, apiKey: null },
   };
 }
 
@@ -367,17 +374,23 @@ export async function hasExistingBackupData(): Promise<boolean> {
   );
 }
 
+function stripApiKeyFromSettings(settings: AppSettings): AppSettings {
+  return { ...settings, apiKey: null };
+}
+
 export async function applyBackupImport(
   payload: BackupPayload,
   mode: ImportMode,
 ): Promise<void> {
+  const importedSettings = stripApiKeyFromSettings(payload.settings);
+
   if (mode === 'replace') {
     await chrome.storage.local.set({
       profile: payload.profile,
       coverLetters: payload.coverLetters,
       applications: payload.applications,
       learnedFields: normalizeLearnedFieldsStorage(payload.learnedFields),
-      settings: payload.settings,
+      settings: importedSettings,
     });
     return;
   }

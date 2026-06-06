@@ -343,6 +343,10 @@ export interface AppSettings {
   debugMode: boolean;
   /** Whether the first-run onboarding flow has been completed. */
   onboardingComplete: boolean;
+  /** API key for AI cover letter generation, stored locally only. */
+  apiKey: string | null;
+  /** AI provider for cover letter generation, or null when disabled. */
+  aiProvider: 'anthropic' | 'openai' | null;
 }
 
 /** A user-taught field mapping with usage metadata. */
@@ -387,7 +391,9 @@ export type MessageType =
   | 'PING'
   | 'PORTAL_DETECTED'
   | 'APPLICATION_COMPLETE'
-  | 'FORM_STATE_CHANGED';
+  | 'FORM_STATE_CHANGED'
+  | 'GENERATE_COVER_LETTER'
+  | 'TEST_AI_CONNECTION';
 
 /** Message types handled by the content script. */
 export type ContentMessageType =
@@ -518,6 +524,31 @@ export interface FillCoverLetterResponse {
   field_found: boolean;
 }
 
+/** Request to generate a cover letter via the configured AI provider. */
+export interface GenerateCoverLetterMessage {
+  type: 'GENERATE_COVER_LETTER';
+  jobDescription: string;
+}
+
+/** Response from AI cover letter generation. */
+export interface GenerateCoverLetterResponse {
+  text?: string;
+  error?: string;
+}
+
+/** Request to test an AI provider API key. */
+export interface TestAiConnectionMessage {
+  type: 'TEST_AI_CONNECTION';
+  apiKey: string;
+  provider: 'anthropic' | 'openai';
+}
+
+/** Response from AI connection test. */
+export interface TestAiConnectionResponse {
+  success: boolean;
+  message: string;
+}
+
 /** Discriminated union of all extension runtime messages. */
 export type ExtensionMessage =
   | GetProfileMessage
@@ -528,7 +559,9 @@ export type ExtensionMessage =
   | PingMessage
   | PortalDetectedMessage
   | ApplicationCompleteMessage
-  | FormStateChangedMessage;
+  | FormStateChangedMessage
+  | GenerateCoverLetterMessage
+  | TestAiConnectionMessage;
 
 /** Discriminated union of messages sent to the content script. */
 export type ContentScriptMessage =

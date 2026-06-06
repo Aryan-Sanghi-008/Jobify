@@ -15,6 +15,7 @@ export interface FormStateMachineDeps {
   clickNext: (button: HTMLButtonElement) => void;
   notifyComplete: () => void;
   broadcastState: (payload: FormStatePayload) => void;
+  onAfterFill?: () => Promise<void>;
 }
 
 type StateChangeCallback = (state: FormState, data: FormStatePayload) => void;
@@ -149,6 +150,10 @@ export class FormStateMachine {
   private async evaluateAfterFill(result?: FillResult): Promise<void> {
     if (!this.settings) {
       return;
+    }
+
+    if (this.deps.onAfterFill) {
+      await this.deps.onAfterFill();
     }
 
     const unknownCount = result?.unknown.length ?? this.totalUnknown.length;

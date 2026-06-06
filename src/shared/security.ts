@@ -20,6 +20,8 @@ const MESSAGE_TYPES: MessageType[] = [
   'PORTAL_DETECTED',
   'APPLICATION_COMPLETE',
   'FORM_STATE_CHANGED',
+  'GENERATE_COVER_LETTER',
+  'TEST_AI_CONNECTION',
 ];
 
 const CONTENT_MESSAGE_TYPES: ContentMessageType[] = [
@@ -56,6 +58,11 @@ const FORBIDDEN_STORAGE_KEY_PATTERNS = [
   /credential/i,
 ];
 
+const ALLOWED_SETTINGS_CREDENTIAL_KEYS = new Set(['apiKey', 'aiProvider']);
+
+const ANTHROPIC_API_KEY_PATTERN = /^sk-ant-[a-zA-Z0-9_-]{20,}$/;
+const OPENAI_API_KEY_PATTERN = /^sk-(?!ant-)[a-zA-Z0-9_-]{20,}$/;
+
 export const STORAGE_SIZE_WARN_BYTES = 4 * 1024 * 1024;
 
 export const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -86,24 +93,24 @@ export function sanitizeString(value: string): string {
   return value.replace(SCRIPT_TAG_PATTERN, '').trim();
 }
 
-function sanitizeUnknown(value: unknown): unknown {
+function sanitizeUnknown(value: unknown, parentKey = ''): unknown {
   if (typeof value === 'string') {
     return sanitizeString(value);
   }
 
   if (Array.isArray(value)) {
-    return value.map((item) => sanitizeUnknown(item));
+    return value.map((item) => sanitizeUnknown(item, parentKey));
   }
 
   if (isRecord(value)) {
     const sanitized: Record<string, unknown> = {};
 
     for (const [key, nested] of Object.entries(value)) {
-      if (isForbiddenStorageKey(key)) {
+      if (isForbiddenStorageKey(key, parentKey)) {
         continue;
       }
 
-      sanitized[key] = sanitizeUnknown(nested);
+      sanitized[key] = sanitizeUnknown(nested, key);
     }
 
     return sanitized;
@@ -112,13 +119,34 @@ function sanitizeUnknown(value: unknown): unknown {
   return value;
 }
 
-export function isForbiddenStorageKey(key: string): boolean {
+export function isForbiddenStorageKey(key: string, parentKey = ''): boolean {
+  if (parentKey === 'settings' && ALLOWED_SETTINGS_CREDENTIAL_KEYS.has(key)) {
+    return false;
+  }
+
   return FORBIDDEN_STORAGE_KEY_PATTERNS.some((pattern) => pattern.test(key));
 }
 
-export function containsForbiddenCredentials(value: unknown): boolean {
+export function validateApiKey(
+  key: string,
+  provider: 'anthropic' | 'openai',
+): boolean {
+  const trimmed = key.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  return provider === 'anthropic'
+    ? ANTHROPIC_API_KEY_PATTERN.test(trimmed)
+    : OPENAI_API_KEY_PATTERN.test(trimmed);
+}
+
+export function containsForbiddenCredentials(
+  value: unknown,
+  parentKey = '',
+): boolean {
   if (Array.isArray(value)) {
-    return value.some((item) => containsForbiddenCredentials(item));
+    return value.some((item) => containsForbiddenCredentials(item, parentKey));
   }
 
   if (!isRecord(value)) {
@@ -126,11 +154,11 @@ export function containsForbiddenCredentials(value: unknown): boolean {
   }
 
   for (const [key, nested] of Object.entries(value)) {
-    if (isForbiddenStorageKey(key)) {
+    if (isForbiddenStorageKey(key, parentKey)) {
       return true;
     }
 
-    if (containsForbiddenCredentials(nested)) {
+    if (containsForbiddenCredentials(nested, key)) {
       return true;
     }
   }
@@ -378,6 +406,13 @@ export function validateMessage(message: unknown): message is ExtensionMessage {
         Array.isArray(payload.errors)
       );
     }
+    case 'GENERATE_COVER_LETTER':
+      return typeof message.jobDescription === 'string';
+    case 'TEST_AI_CONNECTION':
+      return (
+        typeof message.apiKey === 'string' &&
+        (message.provider === 'anthropic' || message.provider === 'openai')
+      );
     default:
       return false;
   }

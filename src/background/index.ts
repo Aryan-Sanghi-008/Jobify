@@ -1,8 +1,10 @@
+import { generateCoverLetter, testAiConnection } from '@/shared/aiEngine';
 import { VERSION } from '@/shared/constants';
 import { Logger } from '@/shared/logger';
 import {
   assertRuntimeValid,
   sanitizeString,
+  validateApiKey,
   validateMessage,
   validateProfile,
 } from '@/shared/security';
@@ -77,6 +79,10 @@ async function runMigration(): Promise<void> {
 
   if (settings && !('onboardingComplete' in settings)) {
     await saveSettings({ onboardingComplete: true });
+  }
+
+  if (settings && !('apiKey' in settings)) {
+    await saveSettings({ apiKey: null, aiProvider: null });
   }
 
   console.log(`migration v${VERSION} complete`);
@@ -179,6 +185,51 @@ async function handleMessage(
     }
     case 'FORM_STATE_CHANGED':
       return { success: true };
+    case 'TEST_AI_CONNECTION': {
+      if (!validateApiKey(message.apiKey, message.provider)) {
+        return { success: false, message: 'Invalid API key format' };
+      }
+
+      return testAiConnection(message.apiKey, message.provider);
+    }
+    case 'GENERATE_COVER_LETTER': {
+      const [settings, profile] = await Promise.all([getSettings(), getProfile()]);
+
+      if (!settings.apiKey || !settings.aiProvider) {
+        return { error: 'AI not configured' };
+      }
+
+      if (!profile) {
+        return { error: 'Profile not found' };
+      }
+
+      const jobDescription = message.jobDescription.trim();
+      if (!jobDescription) {
+        return { error: 'Job description is empty' };
+      }
+
+      try {
+        const text = await generateCoverLetter(
+          jobDescription,
+          profile,
+          settings.apiKey,
+          settings.aiProvider,
+        );
+        return { text };
+      } catch (error) {
+        Logger.warn(
+          'Background',
+          'AI cover letter generation failed',
+          error instanceof Error ? error.message : 'Unknown error',
+        );
+        return {
+          error:
+            error instanceof Error
+              ? error.message
+              : 'AI cover letter generation failed',
+        };
+      }
+    }
     default: {
       const exhaustiveCheck: never = message;
       throw new Error(`Unhandled message type: ${String(exhaustiveCheck)}`);

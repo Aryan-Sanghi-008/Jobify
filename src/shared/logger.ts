@@ -32,6 +32,7 @@ const SENSITIVE_VALUE_KEYS = new Set([
   'password',
   'token',
   'secret',
+  'apiKey',
 ]);
 
 export interface ProfileCompleteness {

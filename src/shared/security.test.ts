@@ -36,6 +36,25 @@ describe('containsForbiddenCredentials', () => {
   it('allows normal profile data', () => {
     expect(containsForbiddenCredentials(DEFAULT_PROFILE)).toBe(false);
   });
+
+  it('allows apiKey nested under settings', () => {
+    expect(
+      containsForbiddenCredentials({
+        settings: {
+          apiKey: 'sk-ant-api03-test',
+          aiProvider: 'anthropic',
+        },
+      }),
+    ).toBe(false);
+  });
+
+  it('still rejects apiKey outside settings', () => {
+    expect(
+      containsForbiddenCredentials({
+        apiKey: 'sk-ant-api03-test',
+      }),
+    ).toBe(true);
+  });
 });
 
 describe('validateProfile', () => {

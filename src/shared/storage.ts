@@ -27,6 +27,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   theme: 'system',
   debugMode: false,
   onboardingComplete: false,
+  apiKey: null,
+  aiProvider: null,
 };
 
 export const DEFAULT_PROFILE: UserProfile = {

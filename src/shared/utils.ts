@@ -159,6 +159,74 @@ export function extractJobTitleFromPage(): string {
   return title;
 }
 
+const JOB_DESCRIPTION_SELECTORS = [
+  '[class*="job-description" i]',
+  '[id*="job-description" i]',
+  '[data-testid*="description" i]',
+  'article .description',
+  '.job-description',
+  '.jobs-description',
+  '#job-description',
+];
+
+function getElementTextContent(element: Element): string {
+  return element.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+}
+
+/**
+ * Reads job description text from the current page DOM.
+ */
+export function extractJobDescriptionFromPage(): string {
+  for (const selector of JOB_DESCRIPTION_SELECTORS) {
+    const element = document.querySelector(selector);
+    const text = element ? getElementTextContent(element) : '';
+    if (text.length >= 50) {
+      return text;
+    }
+  }
+
+  const metaDescription = document
+    .querySelector('meta[name="description"]')
+    ?.getAttribute('content')
+    ?.trim();
+  if (metaDescription && metaDescription.length >= 50) {
+    return metaDescription;
+  }
+
+  const titleElement = document.querySelector(JOB_TITLE_SELECTORS.join(', '));
+  if (titleElement) {
+    let sibling = titleElement.nextElementSibling;
+    let bestText = '';
+
+    while (sibling) {
+      if (sibling instanceof HTMLElement && isElementVisible(sibling)) {
+        const blocks = sibling.matches('p, div')
+          ? [sibling]
+          : Array.from(sibling.querySelectorAll('p, div'));
+
+        for (const block of blocks) {
+          if (!(block instanceof HTMLElement) || !isElementVisible(block)) {
+            continue;
+          }
+
+          const text = getElementTextContent(block);
+          if (text.length > bestText.length) {
+            bestText = text;
+          }
+        }
+      }
+
+      sibling = sibling.nextElementSibling;
+    }
+
+    if (bestText.length >= 50) {
+      return bestText;
+    }
+  }
+
+  return '';
+}
+
 /**
  * Detects which job portal or ATS a URL belongs to.
  */

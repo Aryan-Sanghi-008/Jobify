@@ -4,6 +4,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   extractCompanyFromPage,
+  extractJobDescriptionFromPage,
   extractJobTitleFromPage,
   isElementVisible,
   simulateSelectChange,
@@ -81,6 +82,31 @@ describe('extractJobTitleFromPage', () => {
     document.title = 'Senior Engineer at Acme Corp';
 
     expect(extractJobTitleFromPage()).toBe('Senior Engineer');
+  });
+});
+
+describe('extractJobDescriptionFromPage', () => {
+  beforeEach(() => {
+    document.head.innerHTML = '';
+    document.body.innerHTML = '';
+    mockVisibleLayout();
+  });
+
+  it('reads job description from a class selector', () => {
+    document.body.innerHTML = `
+      <div class="job-description">
+        We are looking for a talented engineer to join our team and build great products.
+      </div>
+    `;
+
+    expect(extractJobDescriptionFromPage()).toContain('talented engineer');
+  });
+
+  it('reads meta description when no dedicated block exists', () => {
+    document.head.innerHTML =
+      '<meta name="description" content="Join our team as a senior software engineer working on distributed systems and cloud infrastructure." />';
+
+    expect(extractJobDescriptionFromPage()).toContain('senior software engineer');
   });
 });
 

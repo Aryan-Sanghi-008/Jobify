@@ -23,7 +23,7 @@ import {
 } from '@/shared/backup';
 import { GITHUB_URL, ISSUE_URL, VERSION } from '@/shared/constants';
 import { generateDiagnosticReport, Logger } from '@/shared/logger';
-import { checkStorageSize } from '@/shared/security';
+import { checkStorageSize, validateApiKey } from '@/shared/security';
 import {
   clearAllData,
   getApplications,
@@ -33,7 +33,13 @@ import {
   saveSettings,
 } from '@/shared/storage';
 import { getSelectorHealth } from '@/shared/selectorHealth';
-import type { AppSettings, CoverLetterTemplate, PortalName, Theme } from '@/shared/types';
+import type {
+  AppSettings,
+  CoverLetterTemplate,
+  PortalName,
+  TestAiConnectionResponse,
+  Theme,
+} from '@/shared/types';
 import { exportApplicationsToCSV, formatByteSize } from '@/shared/utils';
 
 const INPUT_CLASS =
@@ -243,6 +249,13 @@ export default function Settings() {
   const [selectorHealth, setSelectorHealth] = useState<
     { portal: PortalName; failures: Record<string, number> }[]
   >([]);
+  const [aiApiKeyDraft, setAiApiKeyDraft] = useState('');
+  const [aiProviderDraft, setAiProviderDraft] = useState<'anthropic' | 'openai'>(
+    'anthropic',
+  );
+  const [hasSavedApiKey, setHasSavedApiKey] = useState(false);
+  const [isTestingAiConnection, setIsTestingAiConnection] = useState(false);
+  const [isSavingAiSettings, setIsSavingAiSettings] = useState(false);
 
   const importInputRef = useRef<HTMLInputElement>(null);
   const { showToast } = useToast();
@@ -267,6 +280,9 @@ export default function Settings() {
       setSettings(loadedSettings);
       setCoverLetters(templates);
       setLearnedStats({ totalLearned: stats.totalLearned });
+      setHasSavedApiKey(Boolean(loadedSettings.apiKey));
+      setAiProviderDraft(loadedSettings.aiProvider ?? 'anthropic');
+      setAiApiKeyDraft('');
       Logger.setDebugMode(loadedSettings.debugMode);
       if (loadedSettings.debugMode) {
         setSelectorHealth(await getSelectorHealth());
@@ -379,6 +395,109 @@ export default function Settings() {
     window.location.reload();
   };
 
+  const getAiKeyForAction = (): string | null => {
+    const draft = aiApiKeyDraft.trim();
+    if (draft) {
+      return draft;
+    }
+
+    return settings?.apiKey?.trim() ? settings.apiKey : null;
+  };
+
+  const handleTestAiConnection = async () => {
+    const apiKey = getAiKeyForAction();
+
+    if (!apiKey) {
+      showToast('Enter an API key to test the connection', 'error');
+      return;
+    }
+
+    if (!validateApiKey(apiKey, aiProviderDraft)) {
+      showToast('API key format is invalid for the selected provider', 'error');
+      return;
+    }
+
+    setIsTestingAiConnection(true);
+
+    try {
+      const response = (await chrome.runtime.sendMessage({
+        type: 'TEST_AI_CONNECTION',
+        apiKey,
+        provider: aiProviderDraft,
+      })) as TestAiConnectionResponse | undefined;
+
+      if (response?.success) {
+        showToast(response.message, 'success');
+      } else {
+        showToast(response?.message ?? 'Connection test failed', 'error');
+      }
+    } catch {
+      showToast('Connection test failed', 'error');
+    } finally {
+      setIsTestingAiConnection(false);
+    }
+  };
+
+  const handleSaveAiSettings = async () => {
+    const draft = aiApiKeyDraft.trim();
+
+    if (draft) {
+      if (!validateApiKey(draft, aiProviderDraft)) {
+        showToast('API key format is invalid for the selected provider', 'error');
+        return;
+      }
+    } else if (!hasSavedApiKey) {
+      showToast('Enter an API key to enable AI integration', 'error');
+      return;
+    } else {
+      await saveSettings({ aiProvider: aiProviderDraft });
+      setSettings((current) =>
+        current ? { ...current, aiProvider: aiProviderDraft } : current,
+      );
+      showToast('Saved', 'success');
+      return;
+    }
+
+    setIsSavingAiSettings(true);
+
+    try {
+      await saveSettings({
+        apiKey: draft,
+        aiProvider: aiProviderDraft,
+      });
+      setSettings((current) =>
+        current
+          ? { ...current, apiKey: draft, aiProvider: aiProviderDraft }
+          : current,
+      );
+      setHasSavedApiKey(true);
+      setAiApiKeyDraft('');
+      showToast('Saved', 'success');
+    } catch {
+      showToast('Could not save AI settings', 'error');
+    } finally {
+      setIsSavingAiSettings(false);
+    }
+  };
+
+  const handleClearAiSettings = async () => {
+    setIsSavingAiSettings(true);
+
+    try {
+      await saveSettings({ apiKey: null, aiProvider: null });
+      setSettings((current) =>
+        current ? { ...current, apiKey: null, aiProvider: null } : current,
+      );
+      setHasSavedApiKey(false);
+      setAiApiKeyDraft('');
+      showToast('AI integration disabled', 'success');
+    } catch {
+      showToast('Could not clear AI settings', 'error');
+    } finally {
+      setIsSavingAiSettings(false);
+    }
+  };
+
   const handleCopyDiagnosticReport = async () => {
     setIsCopyingDiagnostics(true);
 
@@ -443,6 +562,65 @@ export default function Settings() {
             </option>
           ))}
         </select>
+      </SettingsSection>
+
+      <SettingsSection title="AI Integration">
+        <p className="mb-3 text-xs leading-relaxed text-gray-500">
+          Optional AI cover letter generation. When enabled, job description and
+          profile summary are sent to your chosen provider. API keys stay on this
+          device only.
+        </p>
+
+        <label className={LABEL_CLASS}>API key</label>
+        <input
+          type="password"
+          value={aiApiKeyDraft}
+          onChange={(event) => setAiApiKeyDraft(event.target.value)}
+          placeholder={hasSavedApiKey ? 'Saved (enter to replace)' : 'sk-...'}
+          autoComplete="off"
+          className={`${INPUT_CLASS} mt-1`}
+        />
+
+        <label className={`${LABEL_CLASS} mt-3 block`}>Provider</label>
+        <select
+          value={aiProviderDraft}
+          onChange={(event) =>
+            setAiProviderDraft(event.target.value as 'anthropic' | 'openai')
+          }
+          className={`${INPUT_CLASS} mt-1`}
+        >
+          <option value="anthropic">Anthropic</option>
+          <option value="openai">OpenAI</option>
+        </select>
+
+        <div className="mt-3 flex gap-2">
+          <button
+            type="button"
+            onClick={() => void handleTestAiConnection()}
+            disabled={isTestingAiConnection || isSavingAiSettings}
+            className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-70"
+          >
+            {isTestingAiConnection ? 'Testing…' : 'Test connection'}
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleSaveAiSettings()}
+            disabled={isSavingAiSettings || isTestingAiConnection}
+            className="flex-1 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-70"
+          >
+            {isSavingAiSettings ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+        {hasSavedApiKey ? (
+          <button
+            type="button"
+            onClick={() => void handleClearAiSettings()}
+            disabled={isSavingAiSettings || isTestingAiConnection}
+            className="mt-2 w-full rounded-lg border border-red-300 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-70"
+          >
+            Remove API key
+          </button>
+        ) : null}
       </SettingsSection>
 
       <SettingsSection title="Developer">
@@ -585,7 +763,8 @@ export default function Settings() {
           </p>
           <p className="text-xs leading-relaxed text-gray-600">
             All your data is stored locally on your device using Chrome&apos;s storage
-            API. Nothing is ever sent to any server. We have no servers.
+            API. Nothing is sent to our servers. If you enable AI Integration,
+            cover letter requests go directly to your chosen AI provider.
           </p>
           <p className="text-xs leading-relaxed text-gray-600">
             Released under the MIT License. See the LICENSE file in the project
