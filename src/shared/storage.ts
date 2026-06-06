@@ -1,3 +1,12 @@
+import {
+  checkStorageSize,
+  containsForbiddenCredentials,
+  sanitizeJobApplication,
+  sanitizeProfile,
+  sanitizeStorageData,
+  sanitizeString,
+  validateProfile,
+} from './security';
 import type {
   AppSettings,
   CoverLetterTemplate,
@@ -65,9 +74,26 @@ async function storageGet<K extends keyof StorageSchema>(
   }
 }
 
+async function warnIfStorageNearLimit(): Promise<void> {
+  const { bytesInUse, exceedsWarningThreshold } = await checkStorageSize();
+
+  if (exceedsWarningThreshold) {
+    console.warn(
+      `[JobAutofill Storage] Storage usage is ${bytesInUse} bytes (>= 4MB). ` +
+        'Consider exporting and clearing old data before hitting the 5MB limit.',
+    );
+  }
+}
+
 async function storageSet(partial: Partial<StorageSchema>): Promise<void> {
   try {
-    await chrome.storage.local.set(partial);
+    if (containsForbiddenCredentials(partial)) {
+      throw new Error('Cannot store passwords or auth tokens');
+    }
+
+    const sanitized = sanitizeStorageData(partial);
+    await chrome.storage.local.set(sanitized);
+    await warnIfStorageNearLimit();
   } catch (error) {
     logStorageError('storageSet', error);
     throw error;
@@ -130,7 +156,16 @@ export async function getProfile(): Promise<UserProfile | null> {
 
 export async function saveProfile(profile: UserProfile): Promise<void> {
   try {
-    await storageSet({ profile });
+    if (containsForbiddenCredentials(profile)) {
+      throw new Error('Cannot store passwords or auth tokens');
+    }
+
+    const validation = validateProfile(profile);
+    if (!validation.valid) {
+      throw new Error('Invalid profile data');
+    }
+
+    await storageSet({ profile: sanitizeProfile(profile) });
   } catch (error) {
     logStorageError('saveProfile', error);
     throw error;
@@ -215,7 +250,9 @@ export async function hasRecentApplication(
 export async function logApplication(app: JobApplication): Promise<void> {
   try {
     const existing = await getApplications();
-    await storageSet({ applications: [...existing, app] });
+    await storageSet({
+      applications: [...existing, sanitizeJobApplication(app)],
+    });
   } catch (error) {
     logStorageError('logApplication', error);
     throw error;
@@ -373,8 +410,8 @@ export async function learnField(
       existing[labelHash] ?? (normalizedLabel ? existing[normalizedLabel] : undefined);
 
     const entry: LearnedField = {
-      value,
-      normalizedLabel,
+      value: sanitizeString(value),
+      normalizedLabel: sanitizeString(normalizedLabel),
       learnedAt: previous?.learnedAt ?? Date.now(),
       timesUsed: previous?.timesUsed ?? 0,
       sites: [...(previous?.sites ?? [])],

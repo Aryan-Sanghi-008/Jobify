@@ -1,5 +1,10 @@
 import { VERSION } from '@/shared/constants';
 import {
+  assertRuntimeValid,
+  validateMessage,
+  validateProfile,
+} from '@/shared/security';
+import {
   DEFAULT_SETTINGS,
   getProfile,
   getSettings,
@@ -8,26 +13,8 @@ import {
   logApplication,
   saveProfile,
 } from '@/shared/storage';
-import type {
-  ExtensionMessage,
-  JobApplication,
-  MessageType,
-  PortalName,
-  UserProfile,
-} from '@/shared/types';
+import type { ExtensionMessage, JobApplication, PortalName } from '@/shared/types';
 import { detectPortal, generateId } from '@/shared/utils';
-
-const MESSAGE_TYPES: MessageType[] = [
-  'GET_PROFILE',
-  'SAVE_PROFILE',
-  'LOG_APPLICATION',
-  'LEARN_FIELD',
-  'GET_SETTINGS',
-  'PING',
-  'PORTAL_DETECTED',
-  'APPLICATION_COMPLETE',
-  'FORM_STATE_CHANGED',
-];
 
 const PORTAL_BADGE_ABBREVIATIONS: Record<Exclude<PortalName, 'generic'>, string> =
   {
@@ -39,90 +26,6 @@ const PORTAL_BADGE_ABBREVIATIONS: Record<Exclude<PortalName, 'generic'>, string>
     lever: 'LV',
     workday: 'WD',
   };
-
-function assertRuntimeValid(): void {
-  if (!chrome.runtime?.id) {
-    throw new Error('Extension context invalidated');
-  }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
-
-function isUserProfile(payload: unknown): payload is UserProfile {
-  if (!isRecord(payload)) {
-    return false;
-  }
-
-  return isRecord(payload.personal) && isRecord(payload.professional);
-}
-
-function isJobApplication(payload: unknown): payload is JobApplication {
-  if (!isRecord(payload)) {
-    return false;
-  }
-
-  return (
-    typeof payload.id === 'string' &&
-    typeof payload.company === 'string' &&
-    typeof payload.role === 'string' &&
-    typeof payload.portal === 'string' &&
-    typeof payload.url === 'string' &&
-    typeof payload.appliedAt === 'number' &&
-    typeof payload.status === 'string'
-  );
-}
-
-function validateMessage(message: unknown): message is ExtensionMessage {
-  if (!isRecord(message) || typeof message.type !== 'string') {
-    return false;
-  }
-
-  if (!MESSAGE_TYPES.includes(message.type as MessageType)) {
-    return false;
-  }
-
-  switch (message.type) {
-    case 'GET_PROFILE':
-    case 'GET_SETTINGS':
-    case 'PING':
-      return true;
-    case 'SAVE_PROFILE':
-      return isUserProfile(message.payload);
-    case 'LOG_APPLICATION':
-      return isJobApplication(message.payload);
-    case 'LEARN_FIELD':
-      return (
-        typeof message.labelHash === 'string' &&
-        typeof message.profileKey === 'string' &&
-        (message.normalizedLabel === undefined ||
-          typeof message.normalizedLabel === 'string') &&
-        (message.site === undefined || typeof message.site === 'string')
-      );
-    case 'PORTAL_DETECTED':
-      return typeof message.portal === 'string';
-    case 'APPLICATION_COMPLETE':
-      return (
-        isRecord(message.payload) &&
-        typeof message.payload.company === 'string' &&
-        typeof message.payload.role === 'string' &&
-        typeof message.payload.portal === 'string' &&
-        typeof message.payload.url === 'string'
-      );
-    case 'FORM_STATE_CHANGED':
-      return (
-        isRecord(message.payload) &&
-        typeof message.payload.state === 'string' &&
-        typeof message.payload.pageNumber === 'number' &&
-        typeof message.payload.totalFilled === 'number' &&
-        Array.isArray(message.payload.totalUnknown) &&
-        Array.isArray(message.payload.errors)
-      );
-    default:
-      return false;
-  }
-}
 
 async function initializeStorage(): Promise<void> {
   assertRuntimeValid();
@@ -189,9 +92,15 @@ async function handleMessage(
   switch (message.type) {
     case 'GET_PROFILE':
       return getProfile();
-    case 'SAVE_PROFILE':
+    case 'SAVE_PROFILE': {
+      const validation = validateProfile(message.payload);
+      if (!validation.valid) {
+        throw new Error('Invalid profile data');
+      }
+
       await saveProfile(message.payload);
       return { success: true };
+    }
     case 'LOG_APPLICATION': {
       const result = await submitApplicationLog(message.payload);
       return { success: true, ...result };

@@ -14,6 +14,14 @@ import {
   parseResume,
   parseResultHasData,
 } from '@/popup/utils/resumeParser';
+import {
+  validateCtc,
+  validateEmail,
+  validateNoticePeriod,
+  validatePhone,
+  validateUrl,
+  validateYear,
+} from '@/shared/security';
 import { DEFAULT_PROFILE, getProfile, saveProfile } from '@/shared/storage';
 import type {
   EducationEntry,
@@ -58,34 +66,6 @@ function mergeProfile(stored: UserProfile | null): UserProfile {
   };
 }
 
-function validateEmail(value: string): string | null {
-  if (!value.trim()) {
-    return 'Email is required';
-  }
-
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())) {
-    return 'Enter a valid email address';
-  }
-
-  return null;
-}
-
-function validateOptionalUrl(value: string): string | null {
-  if (!value.trim()) {
-    return null;
-  }
-
-  try {
-    const url = new URL(value.trim());
-    if (!['http:', 'https:'].includes(url.protocol)) {
-      return 'URL must start with http:// or https://';
-    }
-    return null;
-  } catch {
-    return 'Enter a valid URL';
-  }
-}
-
 function validateNonNegativeNumber(
   value: number,
   label: string,
@@ -101,19 +81,6 @@ function validateNonNegativeNumber(
 
   if (!allowZero && value === 0) {
     return `${label} must be greater than 0`;
-  }
-
-  return null;
-}
-
-function validateGraduationYear(value: number): string | null {
-  const numberError = validateNonNegativeNumber(value, 'Graduation year');
-  if (numberError) {
-    return numberError;
-  }
-
-  if (value !== 0 && (value < 1950 || value > 2100)) {
-    return 'Enter a valid graduation year';
   }
 
   return null;
@@ -581,7 +548,12 @@ export default function Profile() {
                   type="tel"
                   value={profile.personal.phone}
                   onChange={(event) => updatePersonal('phone', event.target.value)}
-                  onBlur={() => void handleValidatedBlur('personal.phone', null)}
+                  onBlur={() =>
+                    void handleValidatedBlur(
+                      'personal.phone',
+                      validatePhone(profileRef.current.personal.phone),
+                    )
+                  }
                   className={INPUT_CLASS}
                 />
               </FormField>
@@ -622,7 +594,7 @@ export default function Profile() {
                   onBlur={() =>
                     void handleValidatedBlur(
                       'personal.linkedinUrl',
-                      validateOptionalUrl(profileRef.current.personal.linkedinUrl),
+                      validateUrl(profileRef.current.personal.linkedinUrl),
                     )
                   }
                   className={INPUT_CLASS}
@@ -637,7 +609,7 @@ export default function Profile() {
                   onBlur={() =>
                     void handleValidatedBlur(
                       'personal.githubUrl',
-                      validateOptionalUrl(profileRef.current.personal.githubUrl),
+                      validateUrl(profileRef.current.personal.githubUrl),
                     )
                   }
                   className={INPUT_CLASS}
@@ -652,7 +624,7 @@ export default function Profile() {
                   onBlur={() =>
                     void handleValidatedBlur(
                       'personal.portfolioUrl',
-                      validateOptionalUrl(profileRef.current.personal.portfolioUrl),
+                      validateUrl(profileRef.current.personal.portfolioUrl),
                     )
                   }
                   className={INPUT_CLASS}
@@ -731,9 +703,8 @@ export default function Profile() {
                     onBlur={() =>
                       void handleValidatedBlur(
                         'professional.noticePeriod',
-                        validateNonNegativeNumber(
+                        validateNoticePeriod(
                           profileRef.current.professional.noticePeriod,
-                          'Notice period',
                         ),
                       )
                     }
@@ -757,7 +728,7 @@ export default function Profile() {
                     onBlur={() =>
                       void handleValidatedBlur(
                         'professional.currentCTC',
-                        validateNonNegativeNumber(
+                        validateCtc(
                           profileRef.current.professional.currentCTC,
                           'Current CTC',
                         ),
@@ -781,7 +752,7 @@ export default function Profile() {
                     onBlur={() =>
                       void handleValidatedBlur(
                         'professional.expectedCTC',
-                        validateNonNegativeNumber(
+                        validateCtc(
                           profileRef.current.professional.expectedCTC,
                           'Expected CTC',
                         ),
@@ -925,7 +896,7 @@ export default function Profile() {
                         onBlur={() =>
                           void handleValidatedBlur(
                             `education.${index}.graduationYear`,
-                            validateGraduationYear(
+                            validateYear(
                               profileRef.current.education[index]?.graduationYear ?? 0,
                             ),
                           )

@@ -8,6 +8,11 @@ import {
   scanPageFields,
 } from '@/content/scanner';
 import {
+  assertRuntimeValid,
+  createRateLimiter,
+  validateContentMessage,
+} from '@/shared/security';
+import {
   flattenProfile,
   getCoverLetters,
   getLearnedFields,
@@ -17,7 +22,6 @@ import {
 } from '@/shared/storage';
 import type {
   AppSettings,
-  ContentMessageType,
   ContentScriptMessage,
   FillCoverLetterMessage,
   FillCoverLetterResponse,
@@ -42,16 +46,10 @@ import {
   simulateUserInput,
 } from '@/shared/utils';
 
-const CONTENT_MESSAGE_TYPES: ContentMessageType[] = [
-  'TRIGGER_AUTOFILL',
-  'CONTINUE_AUTOFILL',
-  'STOP_AUTOFILL',
-  'FILL_COVER_LETTER',
-  'GET_PAGE_INFO',
-  'LEARN_FIELD_MAPPING',
-  'FILL_SINGLE_FIELD',
-  'CHECK_FORM_PROGRESS',
-];
+const triggerAutofillLimiter = createRateLimiter({
+  maxRequests: 3,
+  windowMs: 30_000,
+});
 
 (function initJobAutofill(): void {
   const globalWindow = window as Window & {
@@ -69,54 +67,6 @@ const CONTENT_MESSAGE_TYPES: ContentMessageType[] = [
   let lastSettings: AppSettings | null = null;
   let lastLearnedFields: Record<string, LearnedField> = {};
   let lastCoverLetterTemplateId: string | undefined;
-
-  function assertRuntimeValid(): void {
-    if (!chrome.runtime?.id) {
-      throw new Error('Extension context invalidated');
-    }
-  }
-
-  function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null;
-  }
-
-  function validateContentMessage(
-    message: unknown,
-  ): message is ContentScriptMessage {
-    if (!isRecord(message) || typeof message.type !== 'string') {
-      return false;
-    }
-
-    if (!CONTENT_MESSAGE_TYPES.includes(message.type as ContentMessageType)) {
-      return false;
-    }
-
-    switch (message.type) {
-      case 'TRIGGER_AUTOFILL':
-      case 'CONTINUE_AUTOFILL':
-      case 'STOP_AUTOFILL':
-      case 'GET_PAGE_INFO':
-      case 'CHECK_FORM_PROGRESS':
-        return true;
-      case 'FILL_COVER_LETTER':
-        return (
-          message.templateId === undefined ||
-          typeof message.templateId === 'string'
-        );
-      case 'LEARN_FIELD_MAPPING':
-        return (
-          typeof message.labelHash === 'string' &&
-          typeof message.profileKey === 'string' &&
-          typeof message.normalizedLabel === 'string'
-        );
-      case 'FILL_SINGLE_FIELD':
-        return (
-          typeof message.label === 'string' && typeof message.value === 'string'
-        );
-      default:
-        return false;
-    }
-  }
 
   function broadcastFormState(payload: FormStatePayload): void {
     try {
@@ -181,6 +131,18 @@ const CONTENT_MESSAGE_TYPES: ContentMessageType[] = [
   }
 
   async function handleTriggerAutofill(): Promise<TriggerAutofillResponse> {
+    assertRuntimeValid();
+
+    if (triggerAutofillLimiter.isLimited()) {
+      console.warn('[JobAutofill Content] TRIGGER_AUTOFILL rate limit exceeded');
+      return {
+        filled: 0,
+        skipped: 0,
+        unknown: [],
+        errors: ['Autofill rate limit exceeded. Please wait before trying again.'],
+      };
+    }
+
     const [profile, settings, learnedFields] = await Promise.all([
       getProfile(),
       getSettings(),
@@ -214,6 +176,8 @@ const CONTENT_MESSAGE_TYPES: ContentMessageType[] = [
   async function handleFillCoverLetter(
     message: FillCoverLetterMessage,
   ): Promise<FillCoverLetterResponse> {
+    assertRuntimeValid();
+
     const field = scanForCoverLetterField();
 
     if (!(field instanceof HTMLTextAreaElement)) {
@@ -258,6 +222,8 @@ const CONTENT_MESSAGE_TYPES: ContentMessageType[] = [
   async function handleLearnFieldMapping(
     message: LearnFieldMappingMessage,
   ): Promise<{ success: true }> {
+    assertRuntimeValid();
+
     await learnField(
       message.labelHash,
       message.profileKey,
@@ -300,6 +266,8 @@ const CONTENT_MESSAGE_TYPES: ContentMessageType[] = [
   async function handleContentMessage(
     message: ContentScriptMessage,
   ): Promise<unknown> {
+    assertRuntimeValid();
+
     switch (message.type) {
       case 'TRIGGER_AUTOFILL':
         return handleTriggerAutofill();
@@ -350,6 +318,8 @@ const CONTENT_MESSAGE_TYPES: ContentMessageType[] = [
   }
 
   async function initialize(): Promise<void> {
+    assertRuntimeValid();
+
     const portal = detectPortal(window.location.href);
     await pingBackground();
     await notifyPortalDetected(portal);

@@ -10,6 +10,7 @@ import ConfirmDialog from '@/popup/components/ConfirmDialog';
 import Spinner from '@/popup/components/Spinner';
 import { useToast } from '@/popup/components/Toast';
 import { VERSION } from '@/shared/constants';
+import { checkStorageSize } from '@/shared/security';
 import {
   clearAllData,
   getApplications,
@@ -201,17 +202,25 @@ export default function Settings() {
 
   useEffect(() => {
     void (async () => {
-      const [loadedSettings, templates, stats] = await Promise.all([
+      const [loadedSettings, templates, stats, storageSize] = await Promise.all([
         getSettings(),
         getCoverLetters(),
         getLearnedFieldStats(),
+        checkStorageSize(),
       ]);
       setSettings(loadedSettings);
       setCoverLetters(templates);
       setLearnedStats({ totalLearned: stats.totalLearned });
       setIsLoading(false);
+
+      if (storageSize.exceedsWarningThreshold) {
+        showToast(
+          'Storage is over 4MB. Export or clear old data to avoid hitting the 5MB limit.',
+          'info',
+        );
+      }
     })();
-  }, []);
+  }, [showToast]);
 
   const handleExport = async () => {
     const [profile, letters, applications, currentSettings] = await Promise.all([

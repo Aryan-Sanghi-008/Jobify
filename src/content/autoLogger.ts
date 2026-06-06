@@ -1,3 +1,4 @@
+import { assertRuntimeValid } from '@/shared/security';
 import type { JobApplication, PortalName } from '@/shared/types';
 import { generateId, isElementVisible } from '@/shared/utils';
 
@@ -244,9 +245,7 @@ export class AutoLogger {
     };
 
     try {
-      if (!chrome.runtime?.id) {
-        return;
-      }
+      assertRuntimeValid();
 
       void chrome.runtime.sendMessage({
         type: 'LOG_APPLICATION',
