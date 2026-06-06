@@ -170,6 +170,20 @@ function matchWithFuse(
   };
 }
 
+function resolveLearnedLiteral(
+  learnedFields: Record<string, string>,
+  normalizedLabel: string,
+): string | undefined {
+  const labelHash = hashString(normalizedLabel);
+  const learned = learnedFields[labelHash];
+
+  if (!learned || isProfileMatchKey(learned)) {
+    return undefined;
+  }
+
+  return learned;
+}
+
 function matchSingleField(
   field: FormField,
   fuse: Fuse<LabelIndexEntry>,
@@ -182,6 +196,17 @@ function matchSingleField(
     return {
       ...field,
       profileKey: learnedKey,
+      confidence: 1,
+      unknown: false,
+    };
+  }
+
+  const learnedLiteral = resolveLearnedLiteral(learnedFields, normalizedLabel);
+
+  if (learnedLiteral) {
+    return {
+      ...field,
+      learnedLiteral,
       confidence: 1,
       unknown: false,
     };

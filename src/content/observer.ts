@@ -148,6 +148,14 @@ export class FormObserver {
     return this.active;
   }
 
+  checkNow(): void {
+    if (!this.active) {
+      return;
+    }
+
+    this.checkForChanges();
+  }
+
   private patchHistory(): void {
     if (this.originalPushState) {
       return;

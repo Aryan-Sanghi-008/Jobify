@@ -3,19 +3,14 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useMemo,
   useState,
   type ReactNode,
   type SVGProps,
 } from 'react';
+import { useExtension } from '@/popup/hooks/useExtension';
 import { getProfile } from '@/shared/storage';
-import type {
-  PageInfoResponse,
-  PortalName,
-  ProfileIncompleteResponse,
-  SerializableFillResult,
-  TriggerAutofillResponse,
-  UserProfile,
-} from '@/shared/types';
+import type { UserProfile } from '@/shared/types';
 
 const Profile = lazy(() => import('./pages/Profile'));
 const CoverLetters = lazy(() => import('./pages/CoverLetters'));
@@ -30,45 +25,16 @@ interface TabConfig {
   icon: (props: SVGProps<SVGSVGElement>) => ReactNode;
 }
 
-type AutofillResult =
-  | { type: 'success'; message: string }
-  | { type: 'error'; message: string };
+type UnknownFieldDraft = {
+  value: string;
+  saveToProfile: boolean;
+};
+
+const INPUT_CLASS =
+  'w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500';
 
 function isProfileComplete(profile: UserProfile | null): boolean {
   return profile !== null && profile.personal.email.trim() !== '';
-}
-
-function isProfileIncompleteResponse(
-  response: TriggerAutofillResponse,
-): response is ProfileIncompleteResponse {
-  return 'type' in response && response.type === 'PROFILE_INCOMPLETE';
-}
-
-function isSerializableFillResult(
-  response: TriggerAutofillResponse,
-): response is SerializableFillResult {
-  return 'filled' in response;
-}
-
-async function getActiveTabId(): Promise<number | null> {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  return tab?.id ?? null;
-}
-
-async function sendToContentScript<T>(message: {
-  type: string;
-}): Promise<T | null> {
-  const tabId = await getActiveTabId();
-
-  if (tabId === null) {
-    return null;
-  }
-
-  try {
-    return await chrome.tabs.sendMessage(tabId, message);
-  } catch {
-    return null;
-  }
 }
 
 function Spinner({ className = '' }: { className?: string }) {
@@ -138,80 +104,109 @@ function TabPanel({ tab }: { tab: TabId }) {
   }
 }
 
+interface ToggleRowProps {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}
+
+function ToggleRow({ label, checked, onChange }: ToggleRowProps) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="text-xs text-gray-600">{label}</span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        onClick={() => onChange(!checked)}
+        className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
+          checked ? 'bg-blue-600' : 'bg-gray-300'
+        }`}
+      >
+        <span
+          className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
+            checked ? 'translate-x-4' : 'translate-x-0'
+          }`}
+        />
+      </button>
+    </div>
+  );
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabId>('profile');
   const [profileComplete, setProfileComplete] = useState(false);
-  const [detectedPortal, setDetectedPortal] = useState<PortalName | null>(null);
-  const [isAutofilling, setIsAutofilling] = useState(false);
-  const [autofillResult, setAutofillResult] = useState<AutofillResult | null>(null);
+  const [unknownDrafts, setUnknownDrafts] = useState<Record<string, UnknownFieldDraft>>({});
+
+  const {
+    isJobPage,
+    isFilling,
+    lastResult,
+    triggerAutofill,
+    fillSingleField,
+    fillAllUnknownFields,
+  } = useExtension();
 
   const loadProfileStatus = useCallback(async () => {
     const profile = await getProfile();
     setProfileComplete(isProfileComplete(profile));
   }, []);
 
-  const loadPageInfo = useCallback(async () => {
-    const pageInfo = await sendToContentScript<PageInfoResponse>({
-      type: 'GET_PAGE_INFO',
-    });
-
-    if (pageInfo?.portal && pageInfo.portal !== 'generic') {
-      setDetectedPortal(pageInfo.portal);
-      return;
-    }
-
-    setDetectedPortal(null);
-  }, []);
-
   useEffect(() => {
     void loadProfileStatus();
-    void loadPageInfo();
-  }, [loadProfileStatus, loadPageInfo]);
+  }, [loadProfileStatus]);
 
-  const handleAutofill = async () => {
-    setIsAutofilling(true);
-    setAutofillResult(null);
-
-    const response = await sendToContentScript<TriggerAutofillResponse>({
-      type: 'TRIGGER_AUTOFILL',
-    });
-
-    setIsAutofilling(false);
-
-    if (!response) {
-      setAutofillResult({
-        type: 'error',
-        message: 'Could not reach this page. Try refreshing and reopening the popup.',
-      });
+  useEffect(() => {
+    if (!lastResult?.unknown.length) {
+      setUnknownDrafts({});
       return;
     }
 
-    if (isProfileIncompleteResponse(response)) {
-      setProfileComplete(false);
-      setAutofillResult({
-        type: 'error',
-        message: 'Setup needed — add your email in Profile before autofilling.',
-      });
-      return;
+    setUnknownDrafts((current) =>
+      Object.fromEntries(
+        lastResult.unknown.map((label) => [
+          label,
+          current[label] ?? { value: '', saveToProfile: false },
+        ]),
+      ),
+    );
+  }, [lastResult]);
+
+  const resultMessage = useMemo(() => {
+    if (!lastResult) {
+      return null;
     }
 
-    if (isSerializableFillResult(response)) {
-      if (response.errors.length > 0) {
-        setAutofillResult({
-          type: 'error',
-          message: response.errors[0] ?? 'Autofill failed.',
-        });
-        return;
-      }
-
-      setAutofillResult({
-        type: 'success',
-        message: `Filled ${response.filled} fields · ${response.unknown.length} unknown`,
-      });
+    if (lastResult.errors.length > 0) {
+      return { type: 'error' as const, message: lastResult.errors[0] };
     }
+
+    return {
+      type: 'success' as const,
+      message: `Filled ${lastResult.filled} fields · ${lastResult.unknown.length} unknown`,
+    };
+  }, [lastResult]);
+
+  const hasUnknownFields = (lastResult?.unknown.length ?? 0) > 0;
+
+  const filledEntries = useMemo(
+    () =>
+      Object.entries(unknownDrafts)
+        .filter(([, draft]) => draft.value.trim() !== '')
+        .map(([label, draft]) => ({
+          label,
+          value: draft.value.trim(),
+          saveToProfile: draft.saveToProfile,
+        })),
+    [unknownDrafts],
+  );
+
+  const updateDraft = (label: string, updates: Partial<UnknownFieldDraft>) => {
+    setUnknownDrafts((current) => ({
+      ...current,
+      [label]: { ...current[label], ...updates },
+    }));
   };
-
-  const showAutofillButton = detectedPortal !== null;
 
   return (
     <div className="flex h-[520px] w-[380px] flex-col bg-white text-gray-900">
@@ -232,15 +227,15 @@ export default function App() {
         </div>
       </header>
 
-      {showAutofillButton ? (
+      {isJobPage ? (
         <section className="border-b border-gray-200 px-4 py-3">
           <button
             type="button"
-            onClick={() => void handleAutofill()}
-            disabled={isAutofilling}
+            onClick={() => void triggerAutofill()}
+            disabled={isFilling}
             className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70"
           >
-            {isAutofilling ? (
+            {isFilling ? (
               <>
                 <Spinner className="text-white" />
                 <span>Auto-filling…</span>
@@ -249,14 +244,72 @@ export default function App() {
               <span>Auto-fill this page</span>
             )}
           </button>
-          {autofillResult ? (
+
+          {resultMessage ? (
             <p
               className={`mt-2 text-center text-xs ${
-                autofillResult.type === 'success' ? 'text-gray-600' : 'text-red-600'
+                resultMessage.type === 'success' ? 'text-gray-600' : 'text-red-600'
               }`}
             >
-              {autofillResult.message}
+              {resultMessage.message}
             </p>
+          ) : null}
+
+          {hasUnknownFields ? (
+            <div className="mt-3 space-y-2">
+              <p className="text-xs font-semibold text-gray-900">
+                {lastResult!.unknown.length} fields need your input
+              </p>
+              <div className="max-h-40 space-y-2 overflow-y-auto">
+                {lastResult!.unknown.map((label) => {
+                  const draft = unknownDrafts[label] ?? {
+                    value: '',
+                    saveToProfile: false,
+                  };
+
+                  return (
+                    <div
+                      key={label}
+                      className="space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-2.5"
+                    >
+                      <p className="text-xs font-medium text-gray-800">{label}</p>
+                      <input
+                        type="text"
+                        value={draft.value}
+                        onChange={(event) =>
+                          updateDraft(label, { value: event.target.value })
+                        }
+                        placeholder="Your answer"
+                        className={INPUT_CLASS}
+                      />
+                      <ToggleRow
+                        label="Save to profile"
+                        checked={draft.saveToProfile}
+                        onChange={(checked) =>
+                          updateDraft(label, { saveToProfile: checked })
+                        }
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void fillSingleField(label, draft.value.trim())}
+                        disabled={isFilling || !draft.value.trim()}
+                        className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-xs font-medium text-gray-700 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Fill this field
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+              <button
+                type="button"
+                onClick={() => void fillAllUnknownFields(filledEntries)}
+                disabled={isFilling || filledEntries.length === 0}
+                className="w-full rounded-lg bg-gray-900 px-3 py-2 text-xs font-semibold text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Fill all above + continue
+              </button>
+            </div>
           ) : null}
         </section>
       ) : null}

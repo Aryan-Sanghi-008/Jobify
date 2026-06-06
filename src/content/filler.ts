@@ -32,6 +32,10 @@ function getFieldValue(
   field: FormField,
   flatProfile: FlatProfile,
 ): string {
+  if (field.learnedLiteral) {
+    return field.learnedLiteral;
+  }
+
   if (!field.profileKey || field.profileKey === 'resumeFile') {
     return '';
   }
@@ -239,12 +243,63 @@ function handleUnknownFields(
   firstUnknown?.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
+function fillElementWithValue(field: FormField, value: string): boolean {
+  const element = field.element;
+
+  switch (field.type) {
+    case 'text':
+    case 'email':
+    case 'tel':
+    case 'date':
+      if (element instanceof HTMLInputElement) {
+        return fillTextInput(element, value);
+      }
+      break;
+    case 'textarea':
+      if (element instanceof HTMLTextAreaElement) {
+        return fillTextarea(element, value);
+      }
+      break;
+    case 'select':
+      if (element instanceof HTMLSelectElement) {
+        return fillSelect(element, value);
+      }
+      break;
+    case 'radio':
+      if (element instanceof HTMLInputElement) {
+        return fillRadioGroup(element, value);
+      }
+      break;
+    case 'checkbox':
+      if (element instanceof HTMLInputElement) {
+        const checkboxResult = fillCheckbox(element, field, value);
+        return checkboxResult === 'filled';
+      }
+      break;
+    default:
+      break;
+  }
+
+  return false;
+}
+
+/**
+ * Fills a single form field with an explicit value (used for manual unknown-field fills).
+ */
+export function fillFieldWithValue(field: FormField, value: string): boolean {
+  if (!value.trim()) {
+    return false;
+  }
+
+  return fillElementWithValue(field, value);
+}
+
 function fillMatchedField(
   field: FormField,
   flatProfile: FlatProfile,
   result: FillResult,
 ): void {
-  if (field.unknown || !field.profileKey) {
+  if (field.unknown || (!field.profileKey && !field.learnedLiteral)) {
     return;
   }
 
@@ -264,44 +319,17 @@ function fillMatchedField(
   const element = field.element;
   let success = false;
 
-  switch (field.type) {
-    case 'text':
-    case 'email':
-    case 'tel':
-    case 'date':
-      if (element instanceof HTMLInputElement) {
-        success = fillTextInput(element, value);
-      }
-      break;
-    case 'textarea':
-      if (element instanceof HTMLTextAreaElement) {
-        success = fillTextarea(element, value);
-      }
-      break;
-    case 'select':
-      if (element instanceof HTMLSelectElement) {
-        success = fillSelect(element, value);
-      }
-      break;
-    case 'radio':
-      if (element instanceof HTMLInputElement) {
-        success = fillRadioGroup(element, value);
-      }
-      break;
-    case 'checkbox':
-      if (element instanceof HTMLInputElement) {
-        const checkboxResult = fillCheckbox(element, field, value);
-        if (checkboxResult === 'filled') {
-          success = true;
-        } else if (checkboxResult === 'skipped') {
-          result.skipped += 1;
-          logFiller('skipped checkbox', field.label);
-          return;
-        }
-      }
-      break;
-    default:
-      break;
+  if (field.type === 'checkbox' && element instanceof HTMLInputElement) {
+    const checkboxResult = fillCheckbox(element, field, value);
+    if (checkboxResult === 'filled') {
+      success = true;
+    } else if (checkboxResult === 'skipped') {
+      result.skipped += 1;
+      logFiller('skipped checkbox', field.label);
+      return;
+    }
+  } else {
+    success = fillElementWithValue(field, value);
   }
 
   if (success) {

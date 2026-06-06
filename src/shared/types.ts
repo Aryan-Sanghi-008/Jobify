@@ -259,6 +259,8 @@ export interface FormField {
   filled: boolean;
   /** Whether the matcher could not map this field to profile data. */
   unknown: boolean;
+  /** User-saved literal answer from learned field mapping (non-profile key). */
+  learnedLiteral?: string;
 }
 
 /** Summary returned after attempting to fill form fields on a page. */
@@ -338,7 +340,9 @@ export type ContentMessageType =
   | 'TRIGGER_AUTOFILL'
   | 'FILL_COVER_LETTER'
   | 'GET_PAGE_INFO'
-  | 'LEARN_FIELD_MAPPING';
+  | 'LEARN_FIELD_MAPPING'
+  | 'FILL_SINGLE_FIELD'
+  | 'CHECK_FORM_PROGRESS';
 
 /** Request to load the stored user profile. */
 export interface GetProfileMessage {
@@ -414,6 +418,24 @@ export interface LearnFieldMappingMessage {
   profileKey: string;
 }
 
+/** Request to fill a single field on the page by label. */
+export interface FillSingleFieldMessage {
+  type: 'FILL_SINGLE_FIELD';
+  label: string;
+  value: string;
+}
+
+/** Result of a single-field fill attempt. */
+export interface FillSingleFieldResponse {
+  success: boolean;
+  field_found: boolean;
+}
+
+/** Request to re-check form progress after manual field fills. */
+export interface CheckFormProgressMessage {
+  type: 'CHECK_FORM_PROGRESS';
+}
+
 /** Page metadata returned by GET_PAGE_INFO. */
 export interface PageInfoResponse {
   company: string;
@@ -443,7 +465,9 @@ export type ContentScriptMessage =
   | TriggerAutofillMessage
   | FillCoverLetterMessage
   | GetPageInfoMessage
-  | LearnFieldMappingMessage;
+  | LearnFieldMappingMessage
+  | FillSingleFieldMessage
+  | CheckFormProgressMessage;
 
 /** Error response returned when a message handler fails. */
 export interface MessageErrorResponse {

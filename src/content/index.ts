@@ -1,4 +1,4 @@
-import { fillFields } from '@/content/filler';
+import { fillFieldWithValue, fillFields } from '@/content/filler';
 import { matchFields } from '@/content/matcher';
 import { FormObserver } from '@/content/observer';
 import {
@@ -20,6 +20,8 @@ import type {
   FillCoverLetterMessage,
   FillCoverLetterResponse,
   FillResult,
+  FillSingleFieldMessage,
+  FillSingleFieldResponse,
   FlatProfile,
   FormField,
   LearnFieldMappingMessage,
@@ -34,6 +36,7 @@ import {
   extractCompanyFromPage,
   extractJobTitleFromPage,
   interpolateCoverLetter,
+  normalizeLabel,
   simulateUserInput,
 } from '@/shared/utils';
 
@@ -42,6 +45,8 @@ const CONTENT_MESSAGE_TYPES: ContentMessageType[] = [
   'FILL_COVER_LETTER',
   'GET_PAGE_INFO',
   'LEARN_FIELD_MAPPING',
+  'FILL_SINGLE_FIELD',
+  'CHECK_FORM_PROGRESS',
 ];
 
 (function initJobAutofill(): void {
@@ -96,6 +101,12 @@ const CONTENT_MESSAGE_TYPES: ContentMessageType[] = [
           typeof message.labelHash === 'string' &&
           typeof message.profileKey === 'string'
         );
+      case 'FILL_SINGLE_FIELD':
+        return (
+          typeof message.label === 'string' && typeof message.value === 'string'
+        );
+      case 'CHECK_FORM_PROGRESS':
+        return true;
       default:
         return false;
     }
@@ -252,6 +263,34 @@ const CONTENT_MESSAGE_TYPES: ContentMessageType[] = [
     return { success: true };
   }
 
+  function findFieldByLabel(label: string): FormField | null {
+    const normalizedTarget = normalizeLabel(label);
+    const fields = scanPageFields();
+
+    return (
+      fields.find((field) => normalizeLabel(field.label) === normalizedTarget) ??
+      null
+    );
+  }
+
+  function handleFillSingleField(
+    message: FillSingleFieldMessage,
+  ): FillSingleFieldResponse {
+    const field = findFieldByLabel(message.label);
+
+    if (!field) {
+      return { success: false, field_found: false };
+    }
+
+    const success = fillFieldWithValue(field, message.value);
+    return { success, field_found: true };
+  }
+
+  function handleCheckFormProgress(): { success: true } {
+    formObserver?.checkNow();
+    return { success: true };
+  }
+
   async function handleContentMessage(
     message: ContentScriptMessage,
   ): Promise<unknown> {
@@ -264,6 +303,10 @@ const CONTENT_MESSAGE_TYPES: ContentMessageType[] = [
         return handleGetPageInfo();
       case 'LEARN_FIELD_MAPPING':
         return handleLearnFieldMapping(message);
+      case 'FILL_SINGLE_FIELD':
+        return handleFillSingleField(message);
+      case 'CHECK_FORM_PROGRESS':
+        return handleCheckFormProgress();
       default: {
         const exhaustiveCheck: never = message;
         throw new Error(`Unhandled content message: ${String(exhaustiveCheck)}`);

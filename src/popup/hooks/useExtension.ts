@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
   FillCoverLetterResponse,
+  FillSingleFieldResponse,
   PageInfoResponse,
   PopupFillResult,
   PortalName,
@@ -8,6 +9,13 @@ import type {
   SerializableFillResult,
   TriggerAutofillResponse,
 } from '@/shared/types';
+import { hashString, normalizeLabel } from '@/shared/utils';
+
+export interface UnknownFieldEntry {
+  label: string;
+  value: string;
+  saveToProfile: boolean;
+}
 
 const MESSAGE_TIMEOUT_MS = 5000;
 
@@ -110,6 +118,9 @@ export interface UseExtensionResult {
   triggerAutofill: () => Promise<void>;
   fillCoverLetter: (templateId: string) => Promise<void>;
   learnFieldMapping: (labelHash: string, profileKey: string) => Promise<void>;
+  fillSingleField: (fieldLabel: string, value: string) => Promise<FillSingleFieldResponse>;
+  checkFormProgress: () => Promise<void>;
+  fillAllUnknownFields: (entries: UnknownFieldEntry[]) => Promise<void>;
 }
 
 export function useExtension(): UseExtensionResult {
@@ -169,6 +180,48 @@ export function useExtension(): UseExtensionResult {
     [],
   );
 
+  const fillSingleField = useCallback(async (fieldLabel: string, value: string) => {
+    try {
+      return await sendToActiveTab<FillSingleFieldResponse>({
+        type: 'FILL_SINGLE_FIELD',
+        label: fieldLabel,
+        value,
+      });
+    } catch {
+      return { success: false, field_found: false };
+    }
+  }, []);
+
+  const checkFormProgress = useCallback(async () => {
+    try {
+      await sendToActiveTab<{ success: true }>({ type: 'CHECK_FORM_PROGRESS' });
+    } catch {
+      // Non-fatal if observer is inactive.
+    }
+  }, []);
+
+  const fillAllUnknownFields = useCallback(
+    async (entries: UnknownFieldEntry[]) => {
+      for (const entry of entries) {
+        if (!entry.value.trim()) {
+          continue;
+        }
+
+        if (entry.saveToProfile) {
+          await learnFieldMapping(
+            hashString(normalizeLabel(entry.label)),
+            entry.value.trim(),
+          );
+        }
+
+        await fillSingleField(entry.label, entry.value.trim());
+      }
+
+      await checkFormProgress();
+    },
+    [checkFormProgress, fillSingleField, learnFieldMapping],
+  );
+
   return useMemo(
     () => ({
       pageInfo,
@@ -178,6 +231,9 @@ export function useExtension(): UseExtensionResult {
       triggerAutofill,
       fillCoverLetter,
       learnFieldMapping,
+      fillSingleField,
+      checkFormProgress,
+      fillAllUnknownFields,
     }),
     [
       pageInfo,
@@ -187,6 +243,9 @@ export function useExtension(): UseExtensionResult {
       triggerAutofill,
       fillCoverLetter,
       learnFieldMapping,
+      fillSingleField,
+      checkFormProgress,
+      fillAllUnknownFields,
     ],
   );
 }
