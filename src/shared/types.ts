@@ -438,6 +438,42 @@ export interface LearnedField {
   sites: string[];
 }
 
+/** A named, importable profile bundle stored in the profile library. */
+export interface SavedProfile {
+  id: string;
+  name: string;
+  createdAt: number;
+  updatedAt: number;
+  profile: UserProfile | null;
+  coverLetters: CoverLetterTemplate[];
+  applications: JobApplication[];
+  learnedFields: Record<string, LearnedField>;
+  jobPreferences: JobPreferences;
+  settings: AppSettings;
+  lastFillResult: SerializableFillResult | null;
+}
+
+/** Summary row for the saved profiles list in Settings. */
+export interface SavedProfileSummary {
+  id: string;
+  name: string;
+  email: string;
+  updatedAt: number;
+  isActive: boolean;
+}
+
+/** Preview of sections detected in a flexible profile import. */
+export interface ProfileImportPreview {
+  name: string;
+  hasProfile: boolean;
+  coverLetterCount: number;
+  applicationCount: number;
+  learnedFieldCount: number;
+  hasSettings: boolean;
+  hasJobPreferences: boolean;
+  hasLastFillResult: boolean;
+}
+
 /** Complete shape of all data persisted in chrome.storage.local. */
 export interface StorageSchema {
   /** Candidate profile, or null before initial setup. */
@@ -464,6 +500,10 @@ export interface StorageSchema {
   communityFields: CommunityFieldsMap;
   /** Fetch metadata for community field mappings. */
   communityFieldsMeta: CommunityFieldsMeta;
+  /** Named profile bundles for multi-profile switching. */
+  savedProfiles: SavedProfile[];
+  /** ID of the profile currently loaded into active storage keys. */
+  activeProfileId: string | null;
 }
 
 /** Known runtime message types exchanged between extension contexts. */

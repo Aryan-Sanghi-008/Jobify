@@ -96,6 +96,15 @@ function logStorageError(operation: string, error: unknown): void {
   console.error('[JobAutofill Storage]', operation, error);
 }
 
+async function notifyLibrarySync(): Promise<void> {
+  try {
+    const { syncActiveToLibrary } = await import('./profileLibrary');
+    await syncActiveToLibrary();
+  } catch (error) {
+    logStorageError('notifyLibrarySync', error);
+  }
+}
+
 async function storageGet<K extends keyof StorageSchema>(
   key: K,
 ): Promise<StorageSchema[K] | undefined> {
@@ -232,6 +241,7 @@ export async function saveProfile(profile: UserProfile): Promise<void> {
     }
 
     await storageSet({ profile: sanitizeProfile(profile) });
+    await notifyLibrarySync();
   } catch (error) {
     logStorageError('saveProfile', error);
     throw error;
@@ -259,6 +269,7 @@ export async function saveCoverLetter(
         ? existing.map((item, i) => (i === index ? template : item))
         : [...existing, template];
     await storageSet({ coverLetters: updated });
+    await notifyLibrarySync();
   } catch (error) {
     logStorageError('saveCoverLetter', error);
     throw error;
@@ -271,6 +282,7 @@ export async function deleteCoverLetter(id: string): Promise<void> {
     await storageSet({
       coverLetters: existing.filter((item) => item.id !== id),
     });
+    await notifyLibrarySync();
   } catch (error) {
     logStorageError('deleteCoverLetter', error);
     throw error;
@@ -319,6 +331,7 @@ export async function logApplication(app: JobApplication): Promise<void> {
     await storageSet({
       applications: [...existing, sanitizeJobApplication(app)],
     });
+    await notifyLibrarySync();
   } catch (error) {
     logStorageError('logApplication', error);
     throw error;
@@ -337,6 +350,7 @@ export async function updateApplicationStatus(
         : app,
     );
     await storageSet({ applications: updated });
+    await notifyLibrarySync();
   } catch (error) {
     logStorageError('updateApplicationStatus', error);
     throw error;
@@ -353,6 +367,7 @@ export async function updateApplicationNotes(
       app.id === id ? { ...app, notes } : app,
     );
     await storageSet({ applications: updated });
+    await notifyLibrarySync();
   } catch (error) {
     logStorageError('updateApplicationNotes', error);
     throw error;
@@ -492,6 +507,7 @@ export async function learnField(
     await storageSet({
       learnedFields: writeLearnedEntry(existing, labelHash, normalizedLabel, entry),
     });
+    await notifyLibrarySync();
   } catch (error) {
     logStorageError('learnField', error);
     throw error;
@@ -529,6 +545,7 @@ export async function recordLearnedFieldUse(
         updated,
       ),
     });
+    await notifyLibrarySync();
   } catch (error) {
     logStorageError('recordLearnedFieldUse', error);
   }
@@ -589,6 +606,7 @@ export async function importLearnedFields(
   }
 
   await storageSet({ learnedFields: merged });
+  await notifyLibrarySync();
 }
 
 export async function getSettings(): Promise<AppSettings> {
@@ -605,6 +623,7 @@ export async function saveSettings(settings: Partial<AppSettings>): Promise<void
   try {
     const current = await getSettings();
     await storageSet({ settings: { ...current, ...settings } });
+    await notifyLibrarySync();
   } catch (error) {
     logStorageError('saveSettings', error);
     throw error;
@@ -626,6 +645,7 @@ export async function saveLastFillResult(
 ): Promise<void> {
   try {
     await storageSet({ lastFillResult: sanitizeStorageData(result) });
+    await notifyLibrarySync();
   } catch (error) {
     logStorageError('saveLastFillResult', error);
     throw error;
@@ -657,6 +677,7 @@ export async function saveJobPreferences(
   try {
     const current = await getJobPreferences();
     await storageSet({ jobPreferences: { ...current, ...preferences } });
+    await notifyLibrarySync();
   } catch (error) {
     logStorageError('saveJobPreferences', error);
     throw error;

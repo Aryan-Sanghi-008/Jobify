@@ -1,4 +1,5 @@
 import {
+  DEFAULT_JOB_PREFERENCES,
   exportLearnedFields,
   getApplications,
   getCoverLetters,
@@ -13,6 +14,7 @@ import type {
   CoverLetterTemplate,
   JobApplication,
   LearnedField,
+  SavedProfile,
   UserProfile,
 } from './types';
 
@@ -51,11 +53,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
-function isTheme(value: unknown): value is AppSettings['theme'] {
+export function isTheme(value: unknown): value is AppSettings['theme'] {
   return value === 'light' || value === 'dark' || value === 'system';
 }
 
-function isUserProfile(value: unknown): value is UserProfile {
+export function isUserProfile(value: unknown): value is UserProfile {
   if (!isRecord(value)) {
     return false;
   }
@@ -63,7 +65,7 @@ function isUserProfile(value: unknown): value is UserProfile {
   return isRecord(value.personal) && isRecord(value.professional);
 }
 
-function isCoverLetterTemplate(value: unknown): value is CoverLetterTemplate {
+export function isCoverLetterTemplate(value: unknown): value is CoverLetterTemplate {
   if (!isRecord(value)) {
     return false;
   }
@@ -77,7 +79,7 @@ function isCoverLetterTemplate(value: unknown): value is CoverLetterTemplate {
   );
 }
 
-function isJobApplication(value: unknown): value is JobApplication {
+export function isJobApplication(value: unknown): value is JobApplication {
   if (!isRecord(value)) {
     return false;
   }
@@ -93,7 +95,7 @@ function isJobApplication(value: unknown): value is JobApplication {
   );
 }
 
-function isLearnedField(value: unknown): value is LearnedField {
+export function isLearnedField(value: unknown): value is LearnedField {
   if (!isRecord(value)) {
     return false;
   }
@@ -108,7 +110,7 @@ function isLearnedField(value: unknown): value is LearnedField {
   );
 }
 
-function isAppSettings(value: unknown): value is AppSettings {
+export function isAppSettings(value: unknown): value is AppSettings {
   if (!isRecord(value)) {
     return false;
   }
@@ -376,6 +378,20 @@ export async function hasExistingBackupData(): Promise<boolean> {
 
 function stripApiKeyFromSettings(settings: AppSettings): AppSettings {
   return { ...settings, apiKey: null };
+}
+
+export function backupPayloadToSavedProfilePartial(
+  payload: BackupPayload,
+): Partial<SavedProfile> {
+  return {
+    profile: payload.profile,
+    coverLetters: payload.coverLetters,
+    applications: payload.applications,
+    learnedFields: payload.learnedFields,
+    settings: stripApiKeyFromSettings(payload.settings),
+    jobPreferences: DEFAULT_JOB_PREFERENCES,
+    lastFillResult: null,
+  };
 }
 
 export async function applyBackupImport(

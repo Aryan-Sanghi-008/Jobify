@@ -1,4 +1,5 @@
 import { createRoot } from 'react-dom/client';
+import { ensureProfileLibrary } from '@/shared/profileLibrary';
 import { getSettings } from '@/shared/storage';
 import type { Theme } from '@/shared/types';
 import App from './App';
@@ -7,6 +8,7 @@ import { applyThemeClass } from './utils/theme';
 import './index.css';
 
 async function bootstrap(): Promise<void> {
+  await ensureProfileLibrary();
   const settings = await getSettings();
   let currentTheme: Theme = settings.theme;
 

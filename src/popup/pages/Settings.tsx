@@ -29,6 +29,19 @@ import {
 import { applyThemeClass } from '@/popup/utils/theme';
 import { GITHUB_URL, ISSUE_URL, VERSION } from '@/shared/constants';
 import { generateDiagnosticReport, Logger } from '@/shared/logger';
+import {
+  applySavedProfile,
+  createProfileFromImport,
+  deleteSavedProfile,
+  exportSavedProfilePayload,
+  getProfileImportPreview,
+  listSavedProfiles,
+  parseFlexibleProfileImport,
+  renameSavedProfile,
+  replaceActiveProfileFromImport,
+  saveCurrentAsNewProfile,
+  type SavedProfileExport,
+} from '@/shared/profileLibrary';
 import { checkStorageSize, validateApiKey } from '@/shared/security';
 import {
   clearAllData,
@@ -51,6 +64,9 @@ import type {
   JobPreferences,
   PortalName,
   TestAiConnectionResponse,
+  ProfileImportPreview,
+  SavedProfile,
+  SavedProfileSummary,
   Theme,
 } from '@/shared/types';
 import { exportApplicationsToCSV, formatByteSize } from '@/shared/utils';
@@ -68,6 +84,117 @@ interface ImportPreviewDialogProps {
   onImportModeChange: (mode: ImportMode) => void;
   onConfirm: () => void;
   onCancel: () => void;
+}
+
+type ProfileImportMode = 'new' | 'replace_active';
+
+interface ProfileImportPreviewDialogProps {
+  preview: ProfileImportPreview;
+  importMode: ProfileImportMode;
+  isImporting: boolean;
+  onImportModeChange: (mode: ProfileImportMode) => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+function ProfileImportPreviewDialog({
+  preview,
+  importMode,
+  isImporting,
+  onImportModeChange,
+  onConfirm,
+  onCancel,
+}: ProfileImportPreviewDialogProps) {
+  const cancelButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEscapeKey(onCancel, !isImporting);
+
+  useEffect(() => {
+    cancelButtonRef.current?.focus();
+  }, []);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="profile-import-preview-title"
+        className="popup-panel w-full max-w-sm rounded-lg p-4 shadow-xl"
+      >
+        <h2
+          id="profile-import-preview-title"
+          className="text-sm font-semibold text-gray-900 dark:text-gray-100"
+        >
+          Import profile
+        </h2>
+        <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
+          Detected profile: <span className="font-medium">{preview.name}</span>
+        </p>
+        <ul className="mt-2 space-y-1 text-sm text-gray-700 dark:text-gray-200">
+          <li>Profile: {preview.hasProfile ? 'Yes' : 'No'}</li>
+          <li>{preview.coverLetterCount} cover letter(s)</li>
+          <li>{preview.applicationCount} application(s)</li>
+          <li>{preview.learnedFieldCount} learned field(s)</li>
+          <li>Settings: {preview.hasSettings ? 'Yes' : 'No'}</li>
+          <li>Job preferences: {preview.hasJobPreferences ? 'Yes' : 'No'}</li>
+        </ul>
+
+        <fieldset className="mt-4">
+          <legend className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+            Import mode
+          </legend>
+          <div className="mt-2 space-y-2">
+            <label className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-200">
+              <input
+                type="radio"
+                name="profile-import-mode"
+                value="new"
+                checked={importMode === 'new'}
+                onChange={() => onImportModeChange('new')}
+                className="mt-0.5 h-4 w-4 border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span>
+                <span className="font-medium">Import as new profile</span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-200">
+              <input
+                type="radio"
+                name="profile-import-mode"
+                value="replace_active"
+                checked={importMode === 'replace_active'}
+                onChange={() => onImportModeChange('replace_active')}
+                className="mt-0.5 h-4 w-4 border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span>
+                <span className="font-medium">Replace active profile</span>
+              </span>
+            </label>
+          </div>
+        </fieldset>
+
+        <div className="mt-4 flex gap-2">
+          <button
+            ref={cancelButtonRef}
+            type="button"
+            onClick={onCancel}
+            disabled={isImporting}
+            className="popup-border-button flex-1 px-3 py-2 text-xs font-semibold disabled:opacity-70"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={isImporting}
+            className="flex-1 rounded-md bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-70"
+          >
+            {isImporting ? 'Importing…' : 'Confirm import'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function ImportPreviewDialog({
@@ -288,9 +415,58 @@ export default function Settings() {
     CommunityContributionEntry[]
   >([]);
   const [isRefreshingCommunity, setIsRefreshingCommunity] = useState(false);
+  const [savedProfiles, setSavedProfiles] = useState<SavedProfileSummary[]>([]);
+  const [newProfileName, setNewProfileName] = useState('');
+  const [profileImportError, setProfileImportError] = useState<string | null>(null);
+  const [isProfileImporting, setIsProfileImporting] = useState(false);
+  const [pendingProfileImport, setPendingProfileImport] = useState<Partial<SavedProfile> | null>(
+    null,
+  );
+  const [profileImportPreview, setProfileImportPreview] =
+    useState<ProfileImportPreview | null>(null);
+  const [profileImportMode, setProfileImportMode] =
+    useState<ProfileImportMode>('new');
+  const [renamingProfileId, setRenamingProfileId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState('');
+  const [deletingProfileId, setDeletingProfileId] = useState<string | null>(null);
+  const [isSwitchingProfile, setIsSwitchingProfile] = useState(false);
 
   const importInputRef = useRef<HTMLInputElement>(null);
+  const profileImportInputRef = useRef<HTMLInputElement>(null);
   const { showToast } = useToast();
+
+  const reloadSavedProfiles = useCallback(async () => {
+    setSavedProfiles(await listSavedProfiles());
+  }, []);
+
+  const reloadActiveProfileData = useCallback(async () => {
+    const [loadedSettings, templates, stats, loadedJobPrefs, learnedFields] =
+      await Promise.all([
+        getSettings(),
+        getCoverLetters(),
+        getLearnedFieldStats(),
+        getJobPreferences(),
+        getLearnedFields(),
+      ]);
+
+    setSettings(loadedSettings);
+    setCoverLetters(templates);
+    setLearnedStats({ totalLearned: stats.totalLearned });
+    setContributionEntries(exportContributionEntries(learnedFields));
+    setJobPreferences(loadedJobPrefs);
+    setHasSavedAdzunaKey(Boolean(loadedJobPrefs.adzunaAppKey));
+    setJobPrefsDraft({
+      desiredRole: loadedJobPrefs.desiredRole,
+      preferredLocations: loadedJobPrefs.preferredLocations.join(', '),
+      minSalary:
+        loadedJobPrefs.minSalary === null ? '' : String(loadedJobPrefs.minSalary),
+      adzunaAppId: loadedJobPrefs.adzunaAppId ?? '',
+      adzunaAppKey: '',
+      adzunaCountry: loadedJobPrefs.adzunaCountry,
+    });
+    applyThemeClass(loadedSettings.theme);
+    Logger.setDebugMode(loadedSettings.debugMode);
+  }, []);
 
   const persistSettings = useCallback(
     async (updates: Partial<AppSettings>) => {
@@ -351,6 +527,7 @@ export default function Settings() {
       if (loadedSettings.debugMode) {
         setSelectorHealth(await getSelectorHealth());
       }
+      await reloadSavedProfiles();
       setIsLoading(false);
 
       if (storageSize.exceedsWarningThreshold) {
@@ -360,7 +537,166 @@ export default function Settings() {
         );
       }
     })();
-  }, [showToast]);
+  }, [reloadSavedProfiles, showToast]);
+
+  const handleSwitchProfile = async (id: string) => {
+    setIsSwitchingProfile(true);
+    try {
+      await applySavedProfile(id);
+      await reloadActiveProfileData();
+      await reloadSavedProfiles();
+      showToast('Profile switched', 'success');
+    } catch (error) {
+      showToast(
+        error instanceof Error ? error.message : 'Could not switch profile',
+        'error',
+      );
+    } finally {
+      setIsSwitchingProfile(false);
+    }
+  };
+
+  const handleSaveCurrentAsNew = async () => {
+    const name = newProfileName.trim();
+    if (!name) {
+      showToast('Enter a profile name first', 'error');
+      return;
+    }
+
+    try {
+      await saveCurrentAsNewProfile(name);
+      setNewProfileName('');
+      await reloadSavedProfiles();
+      showToast(`Saved profile "${name}"`, 'success');
+    } catch (error) {
+      showToast(
+        error instanceof Error ? error.message : 'Could not save profile',
+        'error',
+      );
+    }
+  };
+
+  const handleProfileImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+
+    if (!file) {
+      return;
+    }
+
+    setProfileImportError(null);
+
+    try {
+      const text = await file.text();
+      const parsed: unknown = JSON.parse(text);
+      const partial = parseFlexibleProfileImport(parsed);
+
+      if (!partial) {
+        setProfileImportError(
+          'Invalid profile file. Include at least one supported section.',
+        );
+        return;
+      }
+
+      setPendingProfileImport(partial);
+      setProfileImportPreview(getProfileImportPreview(partial));
+      setProfileImportMode('new');
+    } catch {
+      setProfileImportError('Could not read or parse the profile file.');
+    }
+  };
+
+  const handleCancelProfileImport = () => {
+    setPendingProfileImport(null);
+    setProfileImportPreview(null);
+    setProfileImportMode('new');
+  };
+
+  const handleConfirmProfileImport = async () => {
+    if (!pendingProfileImport) {
+      return;
+    }
+
+    setIsProfileImporting(true);
+    try {
+      if (profileImportMode === 'replace_active') {
+        await replaceActiveProfileFromImport(pendingProfileImport);
+        await reloadActiveProfileData();
+      } else {
+        await createProfileFromImport(pendingProfileImport, { activate: false });
+      }
+
+      await reloadSavedProfiles();
+      handleCancelProfileImport();
+      showToast('Profile imported', 'success');
+    } catch (error) {
+      showToast(
+        error instanceof Error ? error.message : 'Could not import profile',
+        'error',
+      );
+    } finally {
+      setIsProfileImporting(false);
+    }
+  };
+
+  const handleExportProfile = async (id: string) => {
+    try {
+      const payload: SavedProfileExport = await exportSavedProfilePayload(id);
+      const json = JSON.stringify(payload, null, 2);
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const date = new Date().toISOString().slice(0, 10);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `jobify-profile-${payload.name.replace(/\s+/g, '-').toLowerCase()}-${date}.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      showToast(`Exported profile "${payload.name}"`, 'success');
+    } catch (error) {
+      showToast(
+        error instanceof Error ? error.message : 'Could not export profile',
+        'error',
+      );
+    }
+  };
+
+  const handleConfirmRename = async () => {
+    if (!renamingProfileId) {
+      return;
+    }
+
+    try {
+      await renameSavedProfile(renamingProfileId, renameDraft);
+      setRenamingProfileId(null);
+      setRenameDraft('');
+      await reloadSavedProfiles();
+      showToast('Profile renamed', 'success');
+    } catch (error) {
+      showToast(
+        error instanceof Error ? error.message : 'Could not rename profile',
+        'error',
+      );
+    }
+  };
+
+  const handleConfirmDeleteProfile = async () => {
+    if (!deletingProfileId) {
+      return;
+    }
+
+    try {
+      await deleteSavedProfile(deletingProfileId);
+      setDeletingProfileId(null);
+      await reloadActiveProfileData();
+      await reloadSavedProfiles();
+      showToast('Profile deleted', 'success');
+    } catch (error) {
+      showToast(
+        error instanceof Error ? error.message : 'Could not delete profile',
+        'error',
+      );
+    }
+  };
 
   const handleExport = async () => {
     const payload = await buildBackupPayload();
@@ -1031,6 +1367,114 @@ export default function Settings() {
         </fieldset>
       </SettingsSection>
 
+      <SettingsSection title="Saved profiles">
+        <p className="mb-3 text-xs leading-relaxed text-gray-600 dark:text-gray-300">
+          Switch between named profile bundles (profile, cover letters, learned
+          fields, tracker, and preferences). Use Export/Import data below for a
+          full-device backup.
+        </p>
+
+        <div className="space-y-2">
+          {savedProfiles.map((profile) => (
+            <div
+              key={profile.id}
+              className="rounded-lg border border-gray-200 px-3 py-2 dark:border-gray-700"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">
+                    {profile.name}
+                    {profile.isActive ? (
+                      <span className="ml-2 rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-green-800 dark:bg-green-900/40 dark:text-green-300">
+                        Active
+                      </span>
+                    ) : null}
+                  </p>
+                  <p className="truncate text-xs text-gray-500 dark:text-gray-400">
+                    {profile.email || 'No email yet'}
+                  </p>
+                </div>
+                {!profile.isActive ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleSwitchProfile(profile.id)}
+                    disabled={isSwitchingProfile}
+                    className="shrink-0 rounded-md bg-blue-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:opacity-70"
+                  >
+                    Switch
+                  </button>
+                ) : null}
+              </div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handleExportProfile(profile.id)}
+                  className="popup-border-button px-2 py-1 text-[11px] font-medium"
+                >
+                  Export
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRenamingProfileId(profile.id);
+                    setRenameDraft(profile.name);
+                  }}
+                  className="popup-border-button px-2 py-1 text-[11px] font-medium"
+                >
+                  Rename
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDeletingProfileId(profile.id)}
+                  disabled={savedProfiles.length <= 1}
+                  className="rounded-md border border-red-300 px-2 py-1 text-[11px] font-medium text-red-700 hover:bg-red-50 disabled:opacity-50 dark:border-red-800 dark:text-red-300"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-3 flex gap-2">
+          <input
+            type="text"
+            value={newProfileName}
+            onChange={(event) => setNewProfileName(event.target.value)}
+            placeholder="New profile name"
+            className={`${INPUT_CLASS} flex-1`}
+          />
+          <button
+            type="button"
+            onClick={() => void handleSaveCurrentAsNew()}
+            className="popup-border-button shrink-0 px-3 py-2 text-xs font-medium"
+          >
+            Save as new
+          </button>
+        </div>
+
+        <div className="mt-2 space-y-2">
+          <input
+            ref={profileImportInputRef}
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={(event) => void handleProfileImportFile(event)}
+          />
+          <button
+            type="button"
+            onClick={() => profileImportInputRef.current?.click()}
+            disabled={isProfileImporting}
+            className="popup-border-button w-full px-3 py-2 text-sm font-medium disabled:opacity-70"
+          >
+            Import profile JSON
+          </button>
+          {profileImportError ? (
+            <p className="text-xs text-red-600">{profileImportError}</p>
+          ) : null}
+        </div>
+      </SettingsSection>
+
       <SettingsSection title="Data management">
         <div className="space-y-2">
           <button
@@ -1124,6 +1568,73 @@ export default function Settings() {
           confirmLabel="Yes, clear everything"
           onConfirm={() => void handleClearData()}
           onCancel={() => setShowClearConfirm(false)}
+        />
+      ) : null}
+
+      {pendingProfileImport && profileImportPreview ? (
+        <ProfileImportPreviewDialog
+          preview={profileImportPreview}
+          importMode={profileImportMode}
+          isImporting={isProfileImporting}
+          onImportModeChange={setProfileImportMode}
+          onConfirm={() => void handleConfirmProfileImport()}
+          onCancel={handleCancelProfileImport}
+        />
+      ) : null}
+
+      {renamingProfileId ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="rename-profile-title"
+            className="popup-panel w-full max-w-sm rounded-lg p-4 shadow-xl"
+          >
+            <h2
+              id="rename-profile-title"
+              className="text-sm font-semibold text-gray-900 dark:text-gray-100"
+            >
+              Rename profile
+            </h2>
+            <label className="mt-3 mb-1 block text-xs font-medium text-gray-700 dark:text-gray-200">
+              Profile name
+            </label>
+            <input
+              type="text"
+              value={renameDraft}
+              onChange={(event) => setRenameDraft(event.target.value)}
+              className={INPUT_CLASS}
+            />
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setRenamingProfileId(null);
+                  setRenameDraft('');
+                }}
+                className="popup-border-button flex-1 px-3 py-2 text-xs font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleConfirmRename()}
+                className="flex-1 rounded-md bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700"
+              >
+                Save name
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {deletingProfileId ? (
+        <ConfirmDialog
+          title="Delete profile"
+          message="Delete this saved profile? This cannot be undone."
+          confirmLabel="Delete profile"
+          onConfirm={() => void handleConfirmDeleteProfile()}
+          onCancel={() => setDeletingProfileId(null)}
         />
       ) : null}
 
