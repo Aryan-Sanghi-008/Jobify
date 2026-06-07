@@ -1,10 +1,16 @@
 import {
+  clickSkillResultRow,
+  findBestSkillMatchRow,
+  hasSelectedSkillChip,
+} from '@/content/controls/skillsFill';
+import {
   isElementVisible,
   simulateUserInput,
   waitForElement,
 } from '@/shared/utils';
 
 const COMBOBOX_DELAY_MS = 200;
+const MULTISELECT_DELAY_MS = 450;
 const OPTION_SELECTORS = [
   '[role="option"]',
   '[data-automation-id*="option" i]',
@@ -42,7 +48,34 @@ function matchesText(left: string, right: string): boolean {
   );
 }
 
+function findSkillsSearchInput(container: Element): HTMLInputElement | null {
+  const inputs = container.querySelectorAll('input:not([type="hidden"])');
+
+  for (const input of inputs) {
+    if (!(input instanceof HTMLInputElement) || !isElementVisible(input)) {
+      continue;
+    }
+
+    const ariaLabel = getTrimmedText(input.getAttribute('aria-label')).toLowerCase();
+    const placeholder = getTrimmedText(input.placeholder).toLowerCase();
+
+    if (
+      /type to add skills|add skills|search skills|skill/i.test(ariaLabel) ||
+      /type to add skills|add skills|skill/i.test(placeholder)
+    ) {
+      return input;
+    }
+  }
+
+  return null;
+}
+
 function findSearchInput(container: Element): HTMLInputElement | null {
+  const skillsInput = findSkillsSearchInput(container);
+  if (skillsInput) {
+    return skillsInput;
+  }
+
   const inputs = container.querySelectorAll('input:not([type="hidden"])');
 
   for (const input of inputs) {
@@ -86,9 +119,9 @@ function findDropdownTrigger(container: Element): HTMLElement | null {
   return null;
 }
 
-export function findMatchingOption(
+function findMatchingOptionInRoot(
   value: string,
-  root: ParentNode = document,
+  root: ParentNode,
 ): HTMLElement | null {
   const normalized = value.trim().toLowerCase();
   if (!normalized) {
@@ -108,6 +141,22 @@ export function findMatchingOption(
         return option;
       }
     }
+  }
+
+  return null;
+}
+
+export function findMatchingOption(
+  value: string,
+  root: ParentNode = document,
+): HTMLElement | null {
+  const inRoot = findMatchingOptionInRoot(value, root);
+  if (inRoot) {
+    return inRoot;
+  }
+
+  if (root !== document) {
+    return findMatchingOptionInRoot(value, document);
   }
 
   return null;
@@ -273,7 +322,10 @@ export async function fillMultiSelectSearch(
       continue;
     }
 
-    if (hasSelectedChip(container, trimmed)) {
+    if (
+      hasSelectedChip(container, trimmed) ||
+      hasSelectedSkillChip(container, trimmed)
+    ) {
       filled += 1;
       continue;
     }
@@ -289,20 +341,41 @@ export async function fillMultiSelectSearch(
     await delay(COMBOBOX_DELAY_MS);
 
     try {
-      await waitForElement('[role="option"]', 1500);
+      await waitForElement('[role="option"], input[type="checkbox"]', 1500);
     } catch {
       // Continue with whatever options exist.
     }
 
-    const option = findMatchingOption(trimmed, container);
+    let option = findMatchingOption(trimmed, container);
     if (!option) {
-      continue;
+      option = findMatchingOption(trimmed, document);
     }
 
-    option.click();
-    await delay(COMBOBOX_DELAY_MS);
+    if (option) {
+      option.click();
+    } else {
+      const checkboxRow =
+        findBestSkillMatchRow(trimmed, container) ??
+        findBestSkillMatchRow(trimmed, document);
+      if (!checkboxRow) {
+        continue;
+      }
+      clickSkillResultRow(checkboxRow);
+    }
 
-    if (hasSelectedChip(container, trimmed)) {
+    await delay(MULTISELECT_DELAY_MS);
+
+    searchInput.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }),
+    );
+    await delay(100);
+
+    if (
+      hasSelectedChip(container, trimmed) ||
+      hasSelectedChip(document, trimmed) ||
+      hasSelectedSkillChip(container, trimmed) ||
+      hasSelectedSkillChip(document, trimmed)
+    ) {
       filled += 1;
     }
   }
@@ -332,7 +405,10 @@ export function fillMultiSelectSearchSync(
       continue;
     }
 
-    if (hasSelectedChip(container, trimmed)) {
+    if (
+      hasSelectedChip(container, trimmed) ||
+      hasSelectedSkillChip(container, trimmed)
+    ) {
       filled += 1;
       continue;
     }
@@ -345,17 +421,38 @@ export function fillMultiSelectSearchSync(
     searchInput.focus();
     searchInput.click();
     simulateUserInput(searchInput, trimmed);
-    syncDelay(COMBOBOX_DELAY_MS);
+    syncDelay(MULTISELECT_DELAY_MS);
 
-    const option = findMatchingOption(trimmed, container);
+    let option = findMatchingOption(trimmed, container);
     if (!option) {
-      continue;
+      option = findMatchingOption(trimmed, document);
     }
 
-    option.click();
-    syncDelay(COMBOBOX_DELAY_MS);
+    if (option) {
+      option.click();
+    } else {
+      const checkboxRow =
+        findBestSkillMatchRow(trimmed, container) ??
+        findBestSkillMatchRow(trimmed, document);
+      if (!checkboxRow) {
+        continue;
+      }
+      clickSkillResultRow(checkboxRow);
+    }
 
-    if (hasSelectedChip(container, trimmed)) {
+    syncDelay(MULTISELECT_DELAY_MS);
+
+    searchInput.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }),
+    );
+    syncDelay(100);
+
+    if (
+      hasSelectedChip(container, trimmed) ||
+      hasSelectedChip(document, trimmed) ||
+      hasSelectedSkillChip(container, trimmed) ||
+      hasSelectedSkillChip(document, trimmed)
+    ) {
       filled += 1;
     }
   }

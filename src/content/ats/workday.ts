@@ -1,15 +1,28 @@
 import {
+  fillDateInput,
+  fillProfileDateInContainer,
+  parseProfileDate,
+} from '@/content/dateFormat';
+import {
+  detectUxiIdPattern,
+  fillEducationEntryFields,
+  fillExperienceEntryFields,
+} from '@/content/entryFieldFill';
+import {
   fillComboboxSync,
-  fillMultiSelectSearchSync,
   findMatchingOption,
 } from '@/content/controls/combobox';
 import { fillFields } from '@/content/filler';
+import {
+  isRepeatablePagePrepared,
+  isRepeatableSectionPrepared,
+  prepareRepeatablePage,
+  type RepeatablePrepareStrategy,
+} from '@/content/prepareRepeatablePage';
+import { resolveFieldValue } from '@/content/profileResolver';
 import { FormStateMachine } from '@/content/formStateMachine';
 import { matchFields } from '@/content/matcher';
-import {
-  ensureEntryCount,
-  getEntryContainers,
-} from '@/content/repeatableSections';
+import { getEntryContainers, getRepeatableDelays } from '@/content/repeatableSections';
 import { scanForNextButton, scanPageFields } from '@/content/scanner';
 import { ATS_SELECTORS, PORTAL_URLS } from '@/shared/constants';
 import { selectorRegistry } from '@/shared/selectorRegistry';
@@ -90,7 +103,21 @@ const SECTION_PATTERNS: Array<{ section: WorkdaySection; pattern: RegExp }> = [
   },
 ];
 
-const DATE_LABEL_PATTERNS = [/start date/i, /end date/i, /graduation/i, /date/i];
+const DATE_LABEL_PATTERNS = [
+  /\bfrom\b/i,
+  /\bto\b/i,
+  /start date/i,
+  /end date/i,
+  /graduation/i,
+];
+
+export {
+  isMyExperiencePrepared,
+  isRepeatablePagePrepared,
+  isRepeatableSectionPrepared,
+  resetMyExperiencePreparedForTests,
+  resetRepeatablePagePreparedForTests,
+} from '@/content/prepareRepeatablePage';
 
 const DROPDOWN_TRIGGER_SELECTORS = [
   '[role="combobox"]',
@@ -206,31 +233,20 @@ export async function fillWorkdayDropdown(
 }
 
 export function parseDateParts(date: string): DateParts | null {
-  const trimmed = date.trim();
-  if (!trimmed) {
+  const parts = parseProfileDate(date);
+  if (!parts) {
     return null;
   }
 
-  const isoMatch = trimmed.match(/^(\d{4})-(\d{1,2})(?:-(\d{1,2}))?$/);
-  if (isoMatch) {
-    const year = isoMatch[1];
-    const monthNumber = Number.parseInt(isoMatch[2], 10);
-    const dayNumber = isoMatch[3] ? Number.parseInt(isoMatch[3], 10) : 1;
+  const monthNumber = Number.parseInt(parts.month, 10);
 
-    if (monthNumber < 1 || monthNumber > 12 || dayNumber < 1 || dayNumber > 31) {
-      return null;
-    }
-
-    return {
-      month: new Date(2000, monthNumber - 1, 1).toLocaleString('en-US', {
-        month: 'long',
-      }),
-      day: String(dayNumber),
-      year,
-    };
-  }
-
-  return null;
+  return {
+    month: new Date(2000, monthNumber - 1, 1).toLocaleString('en-US', {
+      month: 'long',
+    }),
+    day: parts.day,
+    year: parts.year,
+  };
 }
 
 export async function fillWorkdayDateGroup(
@@ -282,6 +298,196 @@ function fillWorkdayDateGroupSync(container: ParentNode, date: string): boolean 
   const yearFilled = fillWorkdayDropdownSync(yearContainer, parts.year);
 
   return monthFilled && dayFilled && yearFilled;
+}
+
+function getInputLabelText(
+  input: HTMLInputElement | HTMLTextAreaElement,
+  container: ParentNode,
+): string {
+  const ariaLabel = getTrimmedText(input.getAttribute('aria-label'));
+  if (ariaLabel) {
+    return ariaLabel;
+  }
+
+  const id = input.id;
+  if (id) {
+    const linked = container.querySelector(`label[for="${CSS.escape(id)}"]`);
+    const linkedText = getTrimmedText(linked?.textContent);
+    if (linkedText) {
+      return linkedText;
+    }
+  }
+
+  const parentLabel = input.closest('label');
+  return getTrimmedText(parentLabel?.textContent);
+}
+
+function findInputByLabel(
+  container: ParentNode,
+  labelPattern: RegExp,
+): HTMLInputElement | HTMLTextAreaElement | null {
+  const inputs = container.querySelectorAll('input, textarea');
+
+  for (const element of inputs) {
+    if (
+      !(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) ||
+      !isElementVisible(element) ||
+      element.type === 'checkbox' ||
+      element.type === 'radio' ||
+      element.type === 'file' ||
+      element.type === 'hidden'
+    ) {
+      continue;
+    }
+
+    const labelText = getInputLabelText(element, container);
+    if (labelPattern.test(labelText)) {
+      return element;
+    }
+  }
+
+  return null;
+}
+
+function fillInputByLabel(
+  container: ParentNode,
+  labelPattern: RegExp,
+  value: string,
+): boolean {
+  if (!value.trim()) {
+    return false;
+  }
+
+  const element = findInputByLabel(container, labelPattern);
+  if (!element) {
+    return false;
+  }
+
+  simulateUserInput(element, value);
+  return element.value === value;
+}
+
+function findLabeledFieldRow(
+  container: ParentNode,
+  labelPattern: RegExp,
+): HTMLElement | null {
+  const labelNodes = container.querySelectorAll('label, legend, span, div, p');
+  for (const labelNode of labelNodes) {
+    const labelText = getTrimmedText(labelNode.textContent);
+    if (!labelPattern.test(labelText)) {
+      continue;
+    }
+
+    const row =
+      labelNode.closest(
+        'div[data-automation-id], fieldset, section, li, div[role="group"]',
+      ) ?? labelNode.parentElement;
+
+    if (row instanceof HTMLElement) {
+      return row;
+    }
+  }
+
+  const element = findInputByLabel(container, labelPattern);
+  if (!element) {
+    return null;
+  }
+
+  let current: HTMLElement | null = element.parentElement;
+  for (let depth = 0; depth < 6 && current; depth += 1) {
+    const hasDateControls = hasDateControlsInRow(current);
+    const hasTargetInput = current.contains(element);
+
+    if (hasTargetInput && hasDateControls) {
+      return current;
+    }
+
+    current = current.parentElement;
+  }
+
+  return element.parentElement;
+}
+
+function hasDateControlsInRow(element: ParentNode): boolean {
+  return Boolean(
+    element.querySelector(WORKDAY_SELECTORS.dateMonth) ||
+      element.querySelector(WORKDAY_SELECTORS.dateDay) ||
+      element.querySelector(WORKDAY_SELECTORS.dateYear),
+  );
+}
+
+function fillDateByLabelScoped(
+  container: ParentNode,
+  labelPattern: RegExp,
+  profileDate: string,
+): boolean {
+  if (!profileDate.trim()) {
+    return false;
+  }
+
+  if (fillProfileDateInContainer(container, labelPattern, profileDate)) {
+    return true;
+  }
+
+  const element = findInputByLabel(container, labelPattern);
+  if (!element) {
+    return false;
+  }
+
+  if (element instanceof HTMLInputElement && fillDateInput(element, profileDate)) {
+    return true;
+  }
+
+  const dateRow = findLabeledFieldRow(container, labelPattern);
+  if (dateRow && fillWorkdayDateGroupSync(dateRow, profileDate)) {
+    return true;
+  }
+
+  let ancestor: HTMLElement | null = element.parentElement;
+  for (let depth = 0; depth < 4 && ancestor; depth += 1) {
+    if (fillWorkdayDateGroupSync(ancestor, profileDate)) {
+      return true;
+    }
+    ancestor = ancestor.parentElement;
+  }
+
+  return false;
+}
+
+function fillDateByLabel(
+  container: ParentNode,
+  labelPattern: RegExp,
+  profileDate: string,
+): boolean {
+  return fillDateByLabelScoped(container, labelPattern, profileDate);
+}
+
+export function shouldDeferToDedicatedWorkdayFill(field: FormField): boolean {
+  if (field.sectionType === 'experience' || field.sectionType === 'education') {
+    return true;
+  }
+
+  if (field.type === 'multiselect') {
+    return true;
+  }
+
+  if (/work experience\s*\d+/i.test(field.label)) {
+    return true;
+  }
+
+  if (/education\s*\d+/i.test(field.label)) {
+    return true;
+  }
+
+  if (/\b(from|to)\b|start date|end date/i.test(field.label)) {
+    return /work experience|education/i.test(field.label);
+  }
+
+  if (/\bskills\b/i.test(field.label)) {
+    return true;
+  }
+
+  return false;
 }
 
 function getSectionHeadingText(element: Element): string {
@@ -490,15 +696,24 @@ function fillExperienceEntry(
 ): FillResult {
   const result = emptyFillResult();
 
-  if (fillTextInContainer(container, WORKDAY_SELECTORS.experienceCompany, experience.company)) {
+  if (
+    fillTextInContainer(container, WORKDAY_SELECTORS.experienceCompany, experience.company) ||
+    fillInputByLabel(container, /^company\b/i, experience.company)
+  ) {
     result.filled += 1;
   }
 
-  if (fillTextInContainer(container, WORKDAY_SELECTORS.experienceTitle, experience.title)) {
+  if (
+    fillTextInContainer(container, WORKDAY_SELECTORS.experienceTitle, experience.title) ||
+    fillInputByLabel(container, /job title/i, experience.title)
+  ) {
     result.filled += 1;
   }
 
-  if (fillTextInContainer(container, WORKDAY_SELECTORS.experienceLocation, city)) {
+  if (
+    fillTextInContainer(container, WORKDAY_SELECTORS.experienceLocation, city) ||
+    fillInputByLabel(container, /^location\b/i, city)
+  ) {
     result.filled += 1;
   }
 
@@ -507,7 +722,8 @@ function fillExperienceEntry(
       container,
       WORKDAY_SELECTORS.experienceDescription,
       experience.description,
-    )
+    ) ||
+    fillInputByLabel(container, /role description|job description|responsibilities/i, experience.description)
   ) {
     result.filled += 1;
   }
@@ -516,11 +732,14 @@ function fillExperienceEntry(
     result.filled += 1;
   }
 
-  if (fillWorkdayDateGroupSync(container, experience.startDate)) {
+  if (fillDateByLabelScoped(container, /\b(from|start date)\b/i, experience.startDate)) {
     result.filled += 1;
   }
 
-  if (!experience.current && fillWorkdayDateGroupSync(container, experience.endDate)) {
+  if (
+    !experience.current &&
+    fillDateByLabelScoped(container, /\b(to|end date)\b/i, experience.endDate)
+  ) {
     result.filled += 1;
   }
 
@@ -535,15 +754,21 @@ function fillEducationEntry(
 
   if (
     fillDropdownInContainer(container, WORKDAY_SELECTORS.educationSchool, education.institution) ||
-    fillTextInContainer(container, WORKDAY_SELECTORS.educationSchool, education.institution)
+    fillTextInContainer(container, WORKDAY_SELECTORS.educationSchool, education.institution) ||
+    fillInputByLabel(container, /school|university|college|institution/i, education.institution)
   ) {
     result.filled += 1;
   }
 
   if (
     fillDropdownInContainer(container, WORKDAY_SELECTORS.educationDegree, education.degree) ||
-    fillTextInContainer(container, WORKDAY_SELECTORS.educationDegree, education.degree)
+    fillTextInContainer(container, WORKDAY_SELECTORS.educationDegree, education.degree) ||
+    fillInputByLabel(container, /^degree\b|qualification/i, education.degree)
   ) {
+    result.filled += 1;
+  }
+
+  if (fillInputByLabel(container, /field of study|major|specialization/i, education.field)) {
     result.filled += 1;
   }
 
@@ -561,68 +786,108 @@ function fillEducationEntry(
     }
   }
 
-  const graduationDate = `${education.graduationYear}-06-01`;
-  if (fillWorkdayDateGroupSync(container, graduationDate)) {
-    result.filled += 1;
+  if (education.graduationYear > 0) {
+    const graduationDate = `${education.graduationYear}-06-01`;
+    if (
+      fillDateByLabelScoped(container, /graduation|year of passing|passing year/i, graduationDate) ||
+      fillInputByLabel(container, /graduation year|year of passing|passing year/i, String(education.graduationYear))
+    ) {
+      result.filled += 1;
+    }
   }
 
   return result;
 }
 
-function fillSkills(profile: UserProfile, formRoot: ParentNode): FillResult {
-  const result = emptyFillResult();
-  if (profile.skills.length === 0) {
-    return result;
+export async function fillWorkdayExperienceEntryPrepare(
+  container: ParentNode,
+  experience: UserProfile['experience'][number],
+  city: string,
+  index: number = 0,
+): Promise<number> {
+  if (detectUxiIdPattern(container)) {
+    const filled = fillExperienceEntryFields(container, experience, city, index);
+    await delay(getRepeatableDelays('workday').entrySettle);
+    return filled;
   }
 
-  const skillsRoot =
-    formRoot.querySelector(WORKDAY_SELECTORS.skillsSection) ??
-    Array.from(formRoot.querySelectorAll('section, fieldset, div')).find((node) =>
-      /\bskills\b/i.test(getTrimmedText(node.textContent)),
-    );
+  const result = fillExperienceEntry(container, experience, city);
+  await delay(getRepeatableDelays('workday').entrySettle);
+  return result.filled;
+}
 
-  if (!skillsRoot) {
-    return result;
+export async function fillWorkdayEducationEntryPrepare(
+  container: ParentNode,
+  education: UserProfile['education'][number],
+  index: number = 0,
+): Promise<number> {
+  if (detectUxiIdPattern(container)) {
+    const filled = fillEducationEntryFields(container, education, index);
+    await delay(getRepeatableDelays('workday').entrySettle);
+    return filled;
   }
 
-  const filledCount = fillMultiSelectSearchSync(skillsRoot, profile.skills);
-  result.filled += filledCount;
-  return result;
+  const result = fillEducationEntry(container, education);
+  await delay(getRepeatableDelays('workday').entrySettle);
+  return result.filled;
+}
+
+export function getWorkdayPrepareStrategy(
+  profile: UserProfile,
+): RepeatablePrepareStrategy {
+  return {
+    shouldRun: (formRoot) => detectWorkdaySection(formRoot) === 'my_experience',
+    fillExperienceEntry: async (container, entry, _profile, index) =>
+      fillWorkdayExperienceEntryPrepare(
+        container,
+        entry,
+        profile.personal.city,
+        index,
+      ),
+    fillEducationEntry: async (container, entry, _profile, index) =>
+      fillWorkdayEducationEntryPrepare(container, entry, index),
+  };
 }
 
 function fillMyExperience(profile: UserProfile, formRoot: ParentNode): FillResult {
   let result = emptyFillResult();
-  const experienceContainers = getEntryContainers('experience');
 
-  profile.experience.forEach((experience, index) => {
-    const container = experienceContainers[index];
-    if (!container) {
-      return;
-    }
+  if (!isRepeatableSectionPrepared('experience')) {
+    const experienceContainers = getEntryContainers('experience');
 
-    result = mergeFillResults(
-      result,
-      fillExperienceEntry(container, experience, profile.personal.city),
-    );
-  });
+    profile.experience.forEach((experience, index) => {
+      const container = experienceContainers[index];
+      if (!container) {
+        return;
+      }
 
-  const educationContainers = getEntryContainers('education');
-  profile.education.forEach((education, index) => {
-    const container = educationContainers[index];
-    if (!container) {
-      return;
-    }
+      result = mergeFillResults(
+        result,
+        fillExperienceEntry(container, experience, profile.personal.city),
+      );
+    });
+  }
 
-    result = mergeFillResults(result, fillEducationEntry(container, education));
-  });
+  if (!isRepeatableSectionPrepared('education')) {
+    const educationContainers = getEntryContainers('education');
+    profile.education.forEach((education, index) => {
+      const container = educationContainers[index];
+      if (!container) {
+        return;
+      }
 
-  result = mergeFillResults(result, fillSkills(profile, formRoot));
+      result = mergeFillResults(result, fillEducationEntry(container, education));
+    });
+  }
+
   return result;
 }
 
-export async function prepareWorkdayPage(profile: UserProfile): Promise<void> {
-  await ensureEntryCount('experience', profile.experience.length);
-  await ensureEntryCount('education', profile.education.length);
+export async function prepareWorkdayPage(
+  profile: UserProfile,
+  formRoot: ParentNode = document,
+): Promise<void> {
+  await prepareRepeatablePage(profile, 'workday', formRoot, getWorkdayPrepareStrategy(profile));
 }
 
 export function runWorkdayMatchAndFill(
@@ -669,6 +934,7 @@ function fillWorkdayMatchedFields(
   fields: FormField[],
   flatProfile: FlatProfile,
   settings: AppSettings,
+  profile?: UserProfile,
 ): FillResult {
   const textFields: FormField[] = [];
   const result = emptyFillResult();
@@ -678,16 +944,37 @@ function fillWorkdayMatchedFields(
       continue;
     }
 
+    if (
+      field.profileKey === 'skills' ||
+      field.sectionType === 'skills' ||
+      /\bskills\b/i.test(field.label)
+    ) {
+      result.skipped += 1;
+      continue;
+    }
+
     if (field.type === 'file') {
       result.skipped += 1;
       continue;
     }
 
-    const value =
+    let value =
       field.learnedLiteral ??
       (field.profileKey
         ? String(flatProfile[field.profileKey as keyof FlatProfile] ?? '')
         : '');
+
+    if (
+      profile &&
+      field.sectionIndex !== undefined &&
+      field.sectionType &&
+      !field.learnedLiteral
+    ) {
+      const resolved = resolveFieldValue(profile, field);
+      if (resolved.trim()) {
+        value = resolved;
+      }
+    }
 
     if (!value.trim()) {
       result.skipped += 1;
@@ -709,18 +996,53 @@ function fillWorkdayMatchedFields(
     }
 
     if (DATE_LABEL_PATTERNS.some((pattern) => pattern.test(field.label))) {
-      const dateContainer = findDateContainer(field.element);
+      const dateContainer =
+        findDateContainer(field.element) ??
+        field.element.closest('section, fieldset, [data-automation-id], form, div, li') ??
+        field.element.parentElement;
+
+      const labelPattern = /\b(from|start)\b/i.test(field.label)
+        ? /\b(from|start date|start)\b/i
+        : /\b(to|end date|end)\b/i.test(field.label)
+          ? /\b(to|end date|end)\b/i
+          : /graduation|year of passing|passing year/i;
+
+      if (
+        dateContainer &&
+        fillProfileDateInContainer(dateContainer, labelPattern, value)
+      ) {
+        field.filled = true;
+        result.filled += 1;
+        continue;
+      }
+
       if (dateContainer && fillWorkdayDateGroupSync(dateContainer, value)) {
+        field.filled = true;
+        result.filled += 1;
+        continue;
+      }
+
+      if (field.element instanceof HTMLInputElement && fillDateInput(field.element, value)) {
         field.filled = true;
         result.filled += 1;
         continue;
       }
     }
 
+    if (
+      field.type === 'date' &&
+      field.element instanceof HTMLInputElement &&
+      fillDateInput(field.element, value)
+    ) {
+      field.filled = true;
+      result.filled += 1;
+      continue;
+    }
+
     textFields.push(field);
   }
 
-  const genericResult = fillFields(textFields, flatProfile, settings);
+  const genericResult = fillFields(textFields, flatProfile, settings, profile);
   return mergeFillResults(result, genericResult);
 }
 
@@ -739,7 +1061,7 @@ function fillApplicationQuestions(
     communityFields,
     'workday',
   );
-  return fillWorkdayMatchedFields(matchedFields, flatProfile, settings);
+  return fillWorkdayMatchedFields(matchedFields, flatProfile, settings, profile);
 }
 
 function fillWorkdayStep(
@@ -763,7 +1085,7 @@ function fillWorkdayStep(
       return mergeFillResults(
         fillMyExperience(profile, formRoot),
         fillApplicationQuestions(
-          fields,
+          fields.filter((field) => !shouldDeferToDedicatedWorkdayFill(field)),
           profile,
           settings,
           learnedFields,
@@ -870,6 +1192,14 @@ export class WorkdayATS {
 
     return new Promise((resolve) => {
       const machine = new FormStateMachine({
+        preparePage: async (activeProfile) => {
+          await prepareRepeatablePage(
+            activeProfile,
+            'workday',
+            formRoot,
+            getWorkdayPrepareStrategy(activeProfile),
+          );
+        },
         scanFields: () => filterWorkdayFields(scanPageFields(formRoot)),
         matchAndFill: (fields) => {
           const section = detectWorkdaySection(formRoot);

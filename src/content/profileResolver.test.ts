@@ -78,6 +78,16 @@ describe('profileResolver', () => {
     expect(resolveSectionProfileKey(field)).toBe('city');
   });
 
+  it('formats experience dates as MM/YYYY for form inputs', () => {
+    const field = makeField({
+      label: 'Work Experience 1 > From',
+      sectionType: 'experience',
+      sectionIndex: 0,
+    });
+
+    expect(resolveFieldValue(profile, field)).toBe('01/2020');
+  });
+
   it('resolves indexed education degree fields', () => {
     const field = makeField({
       label: 'Education 1 > Degree',

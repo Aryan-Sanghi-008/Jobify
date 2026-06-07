@@ -1,4 +1,5 @@
 import Fuse from 'fuse.js';
+import { formatProfileDateForInput } from '@/content/dateFormat';
 import { resolveSectionProfileKey } from '@/content/profileResolver';
 import {
   invalidateCommunityFieldsCache,
@@ -389,14 +390,7 @@ function formatDateValue(value: string): string {
     return '';
   }
 
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return value;
-  }
-
-  const year = parsed.getFullYear();
-  const month = String(parsed.getMonth() + 1).padStart(2, '0');
-  return `${year}-${month}`;
+  return formatProfileDateForInput(value, 'mm/yyyy');
 }
 
 /**

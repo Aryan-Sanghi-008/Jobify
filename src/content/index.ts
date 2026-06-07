@@ -288,15 +288,22 @@ interface AutofillModules {
     if (!formStateMachine) {
       formStateMachine = new modules.FormStateMachine({
         preparePage: async (profile: UserProfile) => {
-          const { ensureRepeatableSections } = await import(
-            '@/content/repeatableSections'
-          );
-          await ensureRepeatableSections(profile);
-
           const portal = detectPortal(window.location.href);
+          const { prepareRepeatablePage } = await import(
+            '@/content/prepareRepeatablePage'
+          );
+
           if (portal === 'workday') {
-            await workday.prepareWorkdayPage(profile);
+            await prepareRepeatablePage(
+              profile,
+              portal,
+              document,
+              workday.getWorkdayPrepareStrategy(profile),
+            );
+            return;
           }
+
+          await prepareRepeatablePage(profile, portal);
         },
         scanFields: () => {
           const scanResult = modules.scanPageFieldsWithMeta();

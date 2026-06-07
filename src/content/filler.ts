@@ -1,7 +1,16 @@
 import {
+  fillDateInput,
+  fillProfileDateInContainer,
+  isDateLabelPattern,
+} from '@/content/dateFormat';
+import {
   fillComboboxSync,
   fillMultiSelectSearchSync,
 } from '@/content/controls/combobox';
+import {
+  isRepeatablePagePrepared,
+  isRepeatableSectionPrepared,
+} from '@/content/prepareRepeatablePage';
 import { fillRadioControl } from '@/content/controls/radio';
 import { getProfileValue } from '@/content/matcher';
 import { resolveFieldValue } from '@/content/profileResolver';
@@ -218,9 +227,29 @@ function fillElementWithValue(field: FormField, value: string): boolean {
     case 'text':
     case 'email':
     case 'tel':
+      if (element instanceof HTMLInputElement) {
+        if (isDateLabelPattern(field.label)) {
+          const container =
+            element.closest('section, fieldset, [data-automation-id], form, div, li') ??
+            element.parentElement ??
+            document;
+          if (
+            fillProfileDateInContainer(
+              container,
+              /\b(from|to)\b|start date|end date|graduation/i,
+              value,
+            )
+          ) {
+            return true;
+          }
+          return fillDateInput(element, value) || fillTextInput(element, value);
+        }
+        return fillTextInput(element, value);
+      }
+      break;
     case 'date':
       if (element instanceof HTMLInputElement) {
-        return fillTextInput(element, value);
+        return fillDateInput(element, value) || fillTextInput(element, value);
       }
       break;
     case 'textarea':
@@ -271,9 +300,32 @@ function fillMatchedField(
     return;
   }
 
+  if (
+    (field.sectionType === 'experience' &&
+      isRepeatableSectionPrepared('experience')) ||
+    (field.sectionType === 'education' &&
+      isRepeatableSectionPrepared('education')) ||
+    (field.sectionType === 'skills' && isRepeatableSectionPrepared('skills')) ||
+    (isRepeatablePagePrepared() && field.type === 'multiselect')
+  ) {
+    result.skipped += 1;
+    logFiller('skipped prepared repeatable field', field.label);
+    return;
+  }
+
   if (field.type === 'file' || field.profileKey === 'resumeFile') {
     result.skipped += 1;
     logFiller(FILE_SKIP_REASON, field.label);
+    return;
+  }
+
+  if (
+    field.profileKey === 'skills' ||
+    field.sectionType === 'skills' ||
+    (field.type === 'text' && /\bskills\b/i.test(field.label))
+  ) {
+    result.skipped += 1;
+    logFiller('skipped skills field for sequential fill', field.label);
     return;
   }
 

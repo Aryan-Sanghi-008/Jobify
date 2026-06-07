@@ -329,6 +329,21 @@ function shouldIncludeField(element: HTMLElement): boolean {
 }
 
 function isSkillsMultiSelectWidget(element: HTMLElement): boolean {
+  if (
+    element instanceof HTMLInputElement &&
+    (element.id === 'skills--skills' ||
+      /skills--/i.test(element.id) ||
+      element.getAttribute('data-uxi-widget-type') === 'selectinput')
+  ) {
+    const sectionRoot =
+      element.closest('section, fieldset, [data-automation-id], form, div') ??
+      element.parentElement;
+    const sectionText = getTrimmedText(sectionRoot?.textContent).toLowerCase();
+    if (/\bskills\b/.test(sectionText) || /type to add skills/i.test(sectionText)) {
+      return true;
+    }
+  }
+
   const sectionRoot =
     element.closest('section, fieldset, [data-automation-id], form, div') ??
     element.parentElement;
@@ -338,15 +353,23 @@ function isSkillsMultiSelectWidget(element: HTMLElement): boolean {
   }
 
   const sectionText = getTrimmedText(sectionRoot.textContent).toLowerCase();
-  const hasSkillsContext = /\bskills\b/.test(sectionText);
+  const hasSkillsContext =
+    /\bskills\b/.test(sectionText) || /type to add skills/i.test(sectionText);
   const hasSearchInput =
     element instanceof HTMLInputElement &&
     element.type !== 'checkbox' &&
     element.type !== 'radio';
 
   const hasListbox = sectionRoot.querySelector('[role="listbox"], [role="option"]');
+  const isUxiSelectInput =
+    element instanceof HTMLInputElement &&
+    element.getAttribute('data-uxi-widget-type') === 'selectinput';
 
-  return hasSkillsContext && hasSearchInput && hasListbox !== null;
+  return (
+    hasSkillsContext &&
+    hasSearchInput &&
+    (hasListbox !== null || isUxiSelectInput || element.id === 'skills--skills')
+  );
 }
 
 interface SectionContext {
@@ -406,7 +429,70 @@ function findNearestSectionHeading(element: HTMLElement): SectionContext {
   return {};
 }
 
+function collectOrderedInstanceIds(
+  prefix: string,
+  anchorSuffix: string,
+  pattern: RegExp,
+): string[] {
+  const selector = `input[id*="${prefix}"][id*="${anchorSuffix}"], textarea[id*="${prefix}"][id*="${anchorSuffix}"]`;
+  const instanceIds: string[] = [];
+
+  for (const anchor of document.querySelectorAll(selector)) {
+    const match = anchor.id.match(pattern);
+    const instanceId = match?.[1];
+    if (instanceId && !instanceIds.includes(instanceId)) {
+      instanceIds.push(instanceId);
+    }
+  }
+
+  return instanceIds;
+}
+
+function resolveIdBasedSectionIndex(
+  instanceId: string,
+  prefix: string,
+  anchorSuffix: string,
+  pattern: RegExp,
+): number {
+  const ordered = collectOrderedInstanceIds(prefix, anchorSuffix, pattern);
+  const index = ordered.indexOf(instanceId);
+  return index >= 0 ? index : 0;
+}
+
 function extractSectionContext(element: HTMLElement): SectionContext {
+  const elementId = element.id ?? '';
+  const idExperienceMatch = elementId.match(/workExperience-(\d+)--/i);
+  if (idExperienceMatch) {
+    const instanceId = idExperienceMatch[1];
+    const index = resolveIdBasedSectionIndex(
+      instanceId,
+      'workExperience',
+      'jobTitle',
+      /workExperience-(\d+)--/i,
+    );
+    return {
+      sectionType: 'experience',
+      sectionIndex: index,
+      sectionTitle: `Work Experience ${index + 1}`,
+    };
+  }
+
+  const idEducationMatch = elementId.match(/education-(\d+)--/i);
+  if (idEducationMatch) {
+    const instanceId = idEducationMatch[1];
+    const index = resolveIdBasedSectionIndex(
+      instanceId,
+      'education',
+      'schoolName',
+      /education-(\d+)--/i,
+    );
+    return {
+      sectionType: 'education',
+      sectionIndex: index,
+      sectionTitle: `Education ${index + 1}`,
+    };
+  }
+
   const automationId = element.getAttribute('data-automation-id') ?? '';
 
   if (/workExperience/i.test(automationId)) {

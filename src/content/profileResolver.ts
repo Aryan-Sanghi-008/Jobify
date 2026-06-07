@@ -1,3 +1,4 @@
+import { formatProfileDateForInput } from '@/content/dateFormat';
 import { FIELD_LABEL_MAP } from '@/shared/constants';
 import type { FormField, ProfileMatchKey, UserProfile } from '@/shared/types';
 import { normalizeLabel } from '@/shared/utils';
@@ -134,6 +135,12 @@ function formatResolvedValue(value: unknown, key: SectionProfileKey | null): str
 
   if (key === 'graduationYear') {
     return String(value);
+  }
+
+  if (key === 'startDate' || key === 'endDate') {
+    return typeof value === 'string'
+      ? formatProfileDateForInput(value, 'mm/yyyy')
+      : '';
   }
 
   return String(value).trim();
