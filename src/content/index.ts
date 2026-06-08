@@ -1,4 +1,8 @@
 import { AutoLogger } from '@/content/autoLogger';
+import {
+  registerFormContext,
+  startFormContextWatcher,
+} from '@/content/frameContext';
 import type { FormStateMachine } from '@/content/formStateMachine';
 import { scanPageFieldsWithMeta } from '@/content/scanner';
 import { Logger } from '@/shared/logger';
@@ -456,12 +460,14 @@ interface AutofillModules {
     const pageContext = await getPageContext();
 
     if (portal !== 'generic') {
+      const scanResult = scanPageFieldsWithMeta();
       return {
         company: pageContext.company,
         jobTitle: pageContext.jobTitle,
         portal,
         hasApplicationForm: true,
-        formFieldCount: 0,
+        formFieldCount: scanResult.fields.length,
+        formFrameId: 0,
       };
     }
 
@@ -474,6 +480,7 @@ interface AutofillModules {
       portal,
       hasApplicationForm: formFieldCount > 0,
       formFieldCount,
+      formFrameId: 0,
     };
   }
 
@@ -555,6 +562,9 @@ interface AutofillModules {
         return handleFillSingleField(message);
       case 'CHECK_FORM_PROGRESS':
         return handleCheckFormProgress();
+      case 'SYNC_FORM_CONTEXT':
+        await registerFormContext(true);
+        return { success: true };
       default: {
         const exhaustiveCheck: never = message;
         throw new Error(`Unhandled content message: ${String(exhaustiveCheck)}`);
@@ -593,8 +603,12 @@ interface AutofillModules {
 
     const portal = detectPortal(window.location.href);
     await pingBackground();
-    await notifyPortalDetected(portal);
-    autoLogger.startWatching();
+    startFormContextWatcher();
+
+    if (window === window.top) {
+      await notifyPortalDetected(portal);
+      autoLogger.startWatching();
+    }
   }
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {

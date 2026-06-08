@@ -19,6 +19,7 @@ export const PORTAL_URLS: Record<PortalName, string[]> = {
   greenhouse: ['greenhouse.io', 'boards.greenhouse.io'],
   lever: ['jobs.lever.co', 'lever.co'],
   workday: ['myworkdayjobs.com', 'workday.com'],
+  comeet: ['comeet.co', 'comeet.com'],
   generic: [],
 };
 

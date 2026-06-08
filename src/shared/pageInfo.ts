@@ -1,15 +1,9 @@
+import {
+  detectPortalFromUrl,
+  hasApplicationPageHeuristics,
+  isLikelyApplicationUrl,
+} from '@/shared/applicationDetection';
 import type { PageInfoResponse } from '@/shared/types';
-import { detectPortal } from '@/shared/utils';
-
-const APPLICATION_URL_PATTERNS = [
-  /\/apply\b/i,
-  /\/application\b/i,
-  /myworkdayjobs\.com/i,
-  /greenhouse\.io/i,
-  /lever\.co/i,
-  /\/jobs?\//i,
-  /\/careers?\//i,
-];
 
 function isRestrictedBrowserUrl(url: string): boolean {
   return (
@@ -20,15 +14,7 @@ function isRestrictedBrowserUrl(url: string): boolean {
   );
 }
 
-/** Whether a URL likely hosts a job application form. */
-export function isLikelyApplicationUrl(url: string): boolean {
-  if (!url || isRestrictedBrowserUrl(url)) {
-    return false;
-  }
-
-  const normalized = url.toLowerCase();
-  return APPLICATION_URL_PATTERNS.some((pattern) => pattern.test(normalized));
-}
+export { isLikelyApplicationUrl } from '@/shared/applicationDetection';
 
 export function isValidPageInfoResponse(value: unknown): value is PageInfoResponse {
   return (
@@ -46,8 +32,10 @@ export function buildPageInfoFromTabUrl(url: string): PageInfoResponse | null {
     return null;
   }
 
-  const portal = detectPortal(url);
-  const hasApplicationForm = portal !== 'generic' || isLikelyApplicationUrl(url);
+  const portal = detectPortalFromUrl(url);
+  const urlLooksLikeApplication = isLikelyApplicationUrl(url);
+  const hasApplicationForm =
+    portal !== 'generic' || urlLooksLikeApplication;
 
   if (!hasApplicationForm) {
     return null;
@@ -59,10 +47,17 @@ export function buildPageInfoFromTabUrl(url: string): PageInfoResponse | null {
     portal,
     hasApplicationForm: true,
     formFieldCount: 0,
+    formFrameId: 0,
   };
 }
 
 /** Whether the popup should offer autofill on this page. */
 export function isAutofillablePage(info: PageInfoResponse): boolean {
-  return info.portal !== 'generic' || info.hasApplicationForm;
+  if (info.portal !== 'generic') {
+    return true;
+  }
+
+  return info.hasApplicationForm;
 }
+
+export { hasApplicationPageHeuristics };

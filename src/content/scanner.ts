@@ -1,7 +1,12 @@
 import { VERSION } from '@/shared/constants';
 import { selectorRegistry } from '@/shared/selectorRegistry';
 import type { FormField, FormFieldType, FormSectionType } from '@/shared/types';
-import { detectPortal, isElementVisible, normalizeLabel } from '@/shared/utils';
+import {
+  detectPortal,
+  isElementRendered,
+  isElementVisible,
+  normalizeLabel,
+} from '@/shared/utils';
 
 export const MAX_SCAN_FIELDS = 120;
 
@@ -321,7 +326,7 @@ function isAlreadyFilled(element: HTMLElement): boolean {
 
 function shouldIncludeField(element: HTMLElement): boolean {
   return (
-    isElementVisible(element) &&
+    isElementRendered(element) &&
     !isAriaHidden(element) &&
     !isCaptchaField(element) &&
     !isAlreadyFilled(element)
@@ -587,6 +592,37 @@ function resolveScanRoot(explicitRoot?: ParentNode): ParentNode {
   return container ?? document;
 }
 
+function collectElementsFromShadowRoots(
+  root: ParentNode,
+  elements: Set<HTMLElement>,
+): void {
+  const hosts =
+    root instanceof Document
+      ? Array.from(root.querySelectorAll('*'))
+      : root instanceof Element
+        ? Array.from(root.querySelectorAll('*'))
+        : [];
+
+  for (const host of hosts) {
+    if (!(host instanceof HTMLElement)) {
+      continue;
+    }
+
+    const shadowRoot = host.shadowRoot;
+    if (!shadowRoot) {
+      continue;
+    }
+
+    for (const selector of FIELD_SELECTORS) {
+      for (const element of safeQueryAll(selector, shadowRoot)) {
+        elements.add(element);
+      }
+    }
+
+    collectElementsFromShadowRoots(shadowRoot, elements);
+  }
+}
+
 function collectCandidateElements(root: ParentNode = document): HTMLElement[] {
   if (typeof document === 'undefined') {
     return [];
@@ -599,6 +635,8 @@ function collectCandidateElements(root: ParentNode = document): HTMLElement[] {
       elements.add(element);
     }
   }
+
+  collectElementsFromShadowRoots(root, elements);
 
   return Array.from(elements);
 }

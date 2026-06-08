@@ -7,6 +7,7 @@ export type PortalName =
   | 'greenhouse'
   | 'lever'
   | 'workday'
+  | 'comeet'
   | 'generic';
 
 /** Pipeline status for a logged job application. */
@@ -524,7 +525,9 @@ export type MessageType =
   | 'AUTO_APPLY_JOB'
   | 'FETCH_COMMUNITY_FIELDS'
   | 'GET_COMMUNITY_FIELDS'
-  | 'GET_ACTIVE_TAB_PAGE_INFO';
+  | 'GET_ACTIVE_TAB_PAGE_INFO'
+  | 'REGISTER_FORM_CONTEXT'
+  | 'FORM_CONTEXT_UPDATED';
 
 /** Message types handled by the content script. */
 export type ContentMessageType =
@@ -535,7 +538,8 @@ export type ContentMessageType =
   | 'GET_PAGE_INFO'
   | 'LEARN_FIELD_MAPPING'
   | 'FILL_SINGLE_FIELD'
-  | 'CHECK_FORM_PROGRESS';
+  | 'CHECK_FORM_PROGRESS'
+  | 'SYNC_FORM_CONTEXT';
 
 /** Request to load the stored user profile. */
 export interface GetProfileMessage {
@@ -647,6 +651,26 @@ export interface CheckFormProgressMessage {
   type: 'CHECK_FORM_PROGRESS';
 }
 
+/** Request a frame to re-scan and register its form context. */
+export interface SyncFormContextMessage {
+  type: 'SYNC_FORM_CONTEXT';
+}
+
+/** Content script registration of scannable fields in a frame. */
+export interface RegisterFormContextMessage {
+  type: 'REGISTER_FORM_CONTEXT';
+  fieldCount: number;
+  portal: PortalName;
+  url: string;
+  isTopFrame: boolean;
+}
+
+/** Background notification that aggregated form context changed. */
+export interface FormContextUpdatedMessage {
+  type: 'FORM_CONTEXT_UPDATED';
+  pageInfo: PageInfoResponse;
+}
+
 /** Page metadata returned by GET_PAGE_INFO. */
 export interface PageInfoResponse {
   company: string;
@@ -656,6 +680,10 @@ export interface PageInfoResponse {
   hasApplicationForm: boolean;
   /** Number of scannable form fields detected on the page. */
   formFieldCount: number;
+  /** Chrome frameId that owns the active application form (0 = top frame). */
+  formFrameId?: number;
+  /** URL of the frame that owns the active application form. */
+  formFrameUrl?: string;
 }
 
 /** Result of a cover letter fill attempt. */
@@ -765,7 +793,9 @@ export type ExtensionMessage =
   | AutoApplyJobMessage
   | GetCommunityFieldsMessage
   | FetchCommunityFieldsMessage
-  | GetActiveTabPageInfoMessage;
+  | GetActiveTabPageInfoMessage
+  | RegisterFormContextMessage
+  | FormContextUpdatedMessage;
 
 /** Discriminated union of messages sent to the content script. */
 export type ContentScriptMessage =
@@ -776,7 +806,8 @@ export type ContentScriptMessage =
   | GetPageInfoMessage
   | LearnFieldMappingMessage
   | FillSingleFieldMessage
-  | CheckFormProgressMessage;
+  | CheckFormProgressMessage
+  | SyncFormContextMessage;
 
 /** Error response returned when a message handler fails. */
 export interface MessageErrorResponse {

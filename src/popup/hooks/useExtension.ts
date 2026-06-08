@@ -26,8 +26,8 @@ export interface UnknownFieldEntry {
 }
 
 const MESSAGE_TIMEOUT_MS = 5000;
-const PAGE_INFO_RETRY_DELAY_MS = 400;
-const PAGE_INFO_MAX_ATTEMPTS = 4;
+const PAGE_INFO_RETRY_DELAY_MS = 600;
+const PAGE_INFO_MAX_ATTEMPTS = 8;
 const ACTIVE_FORM_STATES = new Set<FormStatePayload['state']>([
   'SCANNING',
   'FILLING',
@@ -51,6 +51,19 @@ function isAutofillStartedResponse(
   response: TriggerAutofillResponse,
 ): response is AutofillStartedResponse {
   return 'type' in response && response.type === 'AUTOFILL_STARTED';
+}
+
+function isFormContextUpdatedMessage(
+  message: unknown,
+): message is { type: 'FORM_CONTEXT_UPDATED'; pageInfo: PageInfoResponse } {
+  return (
+    typeof message === 'object' &&
+    message !== null &&
+    'type' in message &&
+    message.type === 'FORM_CONTEXT_UPDATED' &&
+    'pageInfo' in message &&
+    isValidPageInfoResponse((message as { pageInfo: unknown }).pageInfo)
+  );
 }
 
 function isFormStateChangedMessage(message: unknown): message is FormStateChangedMessage {
@@ -77,13 +90,17 @@ function payloadToLastResult(payload: FormStatePayload): PopupFillResult {
 /**
  * Sends a message to a tab's content script with a 5-second timeout.
  */
-export function sendTabMessage<T>(tabId: number, message: unknown): Promise<T> {
+export function sendTabMessage<T>(
+  tabId: number,
+  message: unknown,
+  frameId = 0,
+): Promise<T> {
   return new Promise((resolve, reject) => {
     const timer = window.setTimeout(() => {
       reject(new Error('Message timeout'));
     }, MESSAGE_TIMEOUT_MS);
 
-    chrome.tabs.sendMessage(tabId, message, (response) => {
+    chrome.tabs.sendMessage(tabId, message, { frameId }, (response) => {
       window.clearTimeout(timer);
 
       if (chrome.runtime.lastError) {
@@ -110,7 +127,7 @@ async function injectContentScript(tabId: number): Promise<void> {
   }
 
   await chrome.scripting.executeScript({
-    target: { tabId },
+    target: { tabId, allFrames: true },
     files,
   });
 }
@@ -154,7 +171,10 @@ async function fetchPageInfo(): Promise<PageInfoResponse | null> {
   return null;
 }
 
-async function sendToActiveTab<T>(message: unknown): Promise<T> {
+async function sendToActiveTab<T>(
+  message: unknown,
+  frameId = 0,
+): Promise<T> {
   const tabId = await getActiveTabId();
 
   if (tabId === null) {
@@ -165,7 +185,7 @@ async function sendToActiveTab<T>(message: unknown): Promise<T> {
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
-      return await sendTabMessage<T>(tabId, message);
+      return await sendTabMessage<T>(tabId, message, frameId);
     } catch (error) {
       lastError = error instanceof Error ? error : lastError;
 
@@ -216,12 +236,32 @@ export function useExtension(): UseExtensionResult {
     void saveLastFillResult(result);
   }, []);
 
-  useEffect(() => {
+  const refreshPageInfo = useCallback(() => {
     void fetchPageInfo().then((info) => setPageInfo(info));
   }, []);
 
   useEffect(() => {
+    refreshPageInfo();
+
+    const handleVisibility = (): void => {
+      if (document.visibilityState === 'visible') {
+        refreshPageInfo();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [refreshPageInfo]);
+
+  useEffect(() => {
     const handleRuntimeMessage = (message: unknown) => {
+      if (isFormContextUpdatedMessage(message)) {
+        setPageInfo(message.pageInfo);
+        return;
+      }
+
       if (!isFormStateChangedMessage(message)) {
         return;
       }
@@ -250,10 +290,13 @@ export function useExtension(): UseExtensionResult {
     setFormState(null);
     setLastResult(null);
 
+    const frameId = pageInfo?.formFrameId ?? 0;
+
     try {
-      const response = await sendToActiveTab<TriggerAutofillResponse>({
-        type: 'TRIGGER_AUTOFILL',
-      });
+      const response = await sendToActiveTab<TriggerAutofillResponse>(
+        { type: 'TRIGGER_AUTOFILL' },
+        frameId,
+      );
 
       if (isProfileIncompleteResponse(response)) {
         persistLastResult(ERROR_RESULT('Profile incomplete — add your email in Profile'));
@@ -282,64 +325,84 @@ export function useExtension(): UseExtensionResult {
       );
       setIsStarting(false);
     }
-  }, [persistLastResult]);
+  }, [pageInfo?.formFrameId, persistLastResult]);
 
   const continueAutofill = useCallback(async () => {
+    const frameId = pageInfo?.formFrameId ?? 0;
     try {
-      await sendToActiveTab<{ success: true }>({ type: 'CONTINUE_AUTOFILL' });
+      await sendToActiveTab<{ success: true }>(
+        { type: 'CONTINUE_AUTOFILL' },
+        frameId,
+      );
     } catch (error) {
       persistLastResult(
         ERROR_RESULT(error instanceof Error ? error.message : 'Failed to continue autofill'),
       );
     }
-  }, [persistLastResult]);
+  }, [pageInfo?.formFrameId, persistLastResult]);
 
   const fillCoverLetter = useCallback(async (templateId: string) => {
+    const frameId = pageInfo?.formFrameId ?? 0;
     try {
-      await sendToActiveTab<FillCoverLetterResponse>({
-        type: 'FILL_COVER_LETTER',
-        templateId,
-      });
+      await sendToActiveTab<FillCoverLetterResponse>(
+        {
+          type: 'FILL_COVER_LETTER',
+          templateId,
+        },
+        frameId,
+      );
     } catch {
       // Caller may handle via UI feedback in a later prompt.
     }
-  }, []);
+  }, [pageInfo?.formFrameId]);
 
   const learnFieldMapping = useCallback(
     async (labelHash: string, profileKey: string, normalizedLabel: string) => {
+      const frameId = pageInfo?.formFrameId ?? 0;
       try {
-        await sendToActiveTab<{ success: true }>({
-          type: 'LEARN_FIELD_MAPPING',
-          labelHash,
-          profileKey,
-          normalizedLabel,
-        });
+        await sendToActiveTab<{ success: true }>(
+          {
+            type: 'LEARN_FIELD_MAPPING',
+            labelHash,
+            profileKey,
+            normalizedLabel,
+          },
+          frameId,
+        );
       } catch {
         // Caller may handle via UI feedback in a later prompt.
       }
     },
-    [],
+    [pageInfo?.formFrameId],
   );
 
   const fillSingleField = useCallback(async (fieldLabel: string, value: string) => {
+    const frameId = pageInfo?.formFrameId ?? 0;
     try {
-      return await sendToActiveTab<FillSingleFieldResponse>({
-        type: 'FILL_SINGLE_FIELD',
-        label: fieldLabel,
-        value,
-      });
+      return await sendToActiveTab<FillSingleFieldResponse>(
+        {
+          type: 'FILL_SINGLE_FIELD',
+          label: fieldLabel,
+          value,
+        },
+        frameId,
+      );
     } catch {
       return { success: false, field_found: false };
     }
-  }, []);
+  }, [pageInfo?.formFrameId]);
 
   const checkFormProgress = useCallback(async () => {
+    const frameId = pageInfo?.formFrameId ?? 0;
     try {
-      await sendToActiveTab<{ success: true }>({ type: 'CHECK_FORM_PROGRESS' });
+      await sendToActiveTab<{ success: true }>(
+        { type: 'CHECK_FORM_PROGRESS' },
+        frameId,
+      );
     } catch {
       // Non-fatal if observer is inactive.
     }
-  }, []);
+  }, [pageInfo?.formFrameId]);
 
   const fillAllUnknownFields = useCallback(
     async (entries: UnknownFieldEntry[]) => {

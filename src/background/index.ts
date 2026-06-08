@@ -40,8 +40,10 @@ import type {
   PortalName,
   TriggerAutofillResponse,
 } from '@/shared/types';
+import { tabFormRegistry } from '@/background/tabFormRegistry';
 import {
   buildPageInfoFromTabUrl,
+  isAutofillablePage,
   isValidPageInfoResponse,
 } from '@/shared/pageInfo';
 import { detectPortal, generateId } from '@/shared/utils';
@@ -83,6 +85,7 @@ const PORTAL_BADGE_ABBREVIATIONS: Record<Exclude<PortalName, 'generic'>, string>
     greenhouse: 'GH',
     lever: 'LV',
     workday: 'WD',
+    comeet: 'CM',
   };
 
 async function initializeStorage(): Promise<void> {
@@ -397,6 +400,30 @@ async function handleMessage(
       return runCommunityFieldsFetch();
     case 'GET_ACTIVE_TAB_PAGE_INFO':
       return getActiveTabPageInfo();
+    case 'REGISTER_FORM_CONTEXT': {
+      const tabId = sender.tab?.id;
+      const frameId = sender.frameId ?? 0;
+      if (tabId === undefined) {
+        return { success: false };
+      }
+
+      tabFormRegistry.register(tabId, frameId, {
+        url: message.url,
+        portal: message.portal,
+        fieldCount: message.fieldCount,
+        isTopFrame: message.isTopFrame,
+      });
+
+      const tabUrl = sender.tab?.url ?? message.url;
+      const aggregated = tabFormRegistry.aggregatePageInfo(tabId, tabUrl);
+      if (aggregated && isAutofillablePage(aggregated)) {
+        notifyFormContextUpdated(aggregated);
+      }
+
+      return { success: true };
+    }
+    case 'FORM_CONTEXT_UPDATED':
+      return { success: true };
     case 'AUTO_APPLY_JOB':
       return autoApplyToJob(message.url);
     default: {
@@ -410,13 +437,17 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unknown error';
 }
 
-function sendTabMessage<T>(tabId: number, message: unknown): Promise<T> {
+function sendTabMessage<T>(
+  tabId: number,
+  message: unknown,
+  frameId = 0,
+): Promise<T> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       reject(new Error('Message timeout'));
     }, MESSAGE_TIMEOUT_MS);
 
-    chrome.tabs.sendMessage(tabId, message, (response) => {
+    chrome.tabs.sendMessage(tabId, message, { frameId }, (response) => {
       clearTimeout(timer);
 
       if (chrome.runtime.lastError) {
@@ -469,7 +500,7 @@ async function ensureContentScript(tabId: number): Promise<void> {
   }
 
   await chrome.scripting.executeScript({
-    target: { tabId },
+    target: { tabId, allFrames: true },
     files,
   });
 
@@ -481,6 +512,28 @@ async function ensureContentScript(tabId: number): Promise<void> {
   }
 
   throw new Error('Content script did not respond after injection');
+}
+
+async function syncFormContexts(tabId: number): Promise<void> {
+  const knownFrameIds = tabFormRegistry
+    .getFrames(tabId)
+    .map((frame) => frame.frameId);
+  const frameIds = new Set<number>([0, ...knownFrameIds]);
+
+  for (const frameId of frameIds) {
+    try {
+      await sendTabMessage(tabId, { type: 'SYNC_FORM_CONTEXT' }, frameId);
+    } catch {
+      // Frame may not host a content script yet.
+    }
+  }
+}
+
+function notifyFormContextUpdated(pageInfo: PageInfoResponse): void {
+  void chrome.runtime.sendMessage({
+    type: 'FORM_CONTEXT_UPDATED',
+    pageInfo,
+  });
 }
 
 function delay(ms: number): Promise<void> {
@@ -498,9 +551,13 @@ async function getActiveTabPageInfo(): Promise<PageInfoResponse | null> {
 
   try {
     await ensureContentScript(tab.id);
-    const info = await sendTabMessage<unknown>(tab.id, { type: 'GET_PAGE_INFO' });
-    if (isValidPageInfoResponse(info)) {
-      return info;
+    await delay(500);
+    await syncFormContexts(tab.id);
+    await delay(400);
+
+    const aggregated = tabFormRegistry.aggregatePageInfo(tab.id, tab.url);
+    if (aggregated && isAutofillablePage(aggregated)) {
+      return aggregated;
     }
   } catch {
     // Fall back to URL-based detection below.
@@ -692,9 +749,13 @@ async function triggerAutofillOnTab(tab?: chrome.tabs.Tab): Promise<void> {
 
   try {
     await ensureContentScript(tab.id);
-    const response = await sendTabMessage<TriggerAutofillResponse>(tab.id, {
-      type: 'TRIGGER_AUTOFILL',
-    });
+    const pageInfo = await getActiveTabPageInfo();
+    const frameId = pageInfo?.formFrameId ?? 0;
+    const response = await sendTabMessage<TriggerAutofillResponse>(
+      tab.id,
+      { type: 'TRIGGER_AUTOFILL' },
+      frameId,
+    );
     const notification = formatAutofillNotification(response);
     await showShortcutNotification(notification.title, notification.message);
   } catch (error) {
@@ -947,6 +1008,10 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === COMMUNITY_FIELDS_ALARM) {
     void runCommunityFieldsFetch();
   }
+});
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  tabFormRegistry.removeTab(tabId);
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {

@@ -17,6 +17,7 @@ const PORTAL_DETECTION_ORDER: PortalName[] = [
   'greenhouse',
   'lever',
   'workday',
+  'comeet',
 ];
 
 /**
@@ -244,9 +245,9 @@ export function detectPortal(url: string): PortalName {
 }
 
 /**
- * Returns whether an element is visible and has non-zero dimensions.
+ * Returns whether an element is rendered with non-zero dimensions (no viewport check).
  */
-export function isElementVisible(el: HTMLElement): boolean {
+export function isElementRendered(el: HTMLElement): boolean {
   if (!el.isConnected) {
     return false;
   }
@@ -261,10 +262,18 @@ export function isElementVisible(el: HTMLElement): boolean {
   }
 
   const rect = el.getBoundingClientRect();
-  if (rect.width === 0 || rect.height === 0) {
+  return rect.width > 0 && rect.height > 0;
+}
+
+/**
+ * Returns whether an element is visible and has non-zero dimensions.
+ */
+export function isElementVisible(el: HTMLElement): boolean {
+  if (!isElementRendered(el)) {
     return false;
   }
 
+  const rect = el.getBoundingClientRect();
   return (
     rect.bottom > 0 &&
     rect.right > 0 &&

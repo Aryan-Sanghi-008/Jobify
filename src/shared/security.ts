@@ -28,6 +28,8 @@ const MESSAGE_TYPES: MessageType[] = [
   'FETCH_COMMUNITY_FIELDS',
   'GET_COMMUNITY_FIELDS',
   'GET_ACTIVE_TAB_PAGE_INFO',
+  'REGISTER_FORM_CONTEXT',
+  'FORM_CONTEXT_UPDATED',
 ];
 
 const CONTENT_MESSAGE_TYPES: ContentMessageType[] = [
@@ -39,6 +41,7 @@ const CONTENT_MESSAGE_TYPES: ContentMessageType[] = [
   'LEARN_FIELD_MAPPING',
   'FILL_SINGLE_FIELD',
   'CHECK_FORM_PROGRESS',
+  'SYNC_FORM_CONTEXT',
 ];
 
 const PORTAL_NAMES: PortalName[] = [
@@ -49,6 +52,7 @@ const PORTAL_NAMES: PortalName[] = [
   'greenhouse',
   'lever',
   'workday',
+  'comeet',
   'generic',
 ];
 
@@ -436,6 +440,22 @@ export function validateMessage(message: unknown): message is ExtensionMessage {
     case 'FETCH_COMMUNITY_FIELDS':
     case 'GET_ACTIVE_TAB_PAGE_INFO':
       return true;
+    case 'REGISTER_FORM_CONTEXT':
+      return (
+        typeof message.fieldCount === 'number' &&
+        isPortalName(message.portal) &&
+        typeof message.url === 'string' &&
+        typeof message.isTopFrame === 'boolean'
+      );
+    case 'FORM_CONTEXT_UPDATED': {
+      const pageInfo = (message as { pageInfo?: unknown }).pageInfo;
+      return (
+        isRecord(pageInfo) &&
+        typeof pageInfo.hasApplicationForm === 'boolean' &&
+        typeof pageInfo.formFieldCount === 'number' &&
+        isPortalName(pageInfo.portal)
+      );
+    }
     case 'AUTO_APPLY_JOB':
       return typeof message.url === 'string' && URL_PATTERN.test(message.url);
     default:
@@ -460,6 +480,7 @@ export function validateContentMessage(
     case 'STOP_AUTOFILL':
     case 'GET_PAGE_INFO':
     case 'CHECK_FORM_PROGRESS':
+    case 'SYNC_FORM_CONTEXT':
       return true;
     case 'FILL_COVER_LETTER':
       return (

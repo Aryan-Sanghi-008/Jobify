@@ -321,6 +321,20 @@ const PORTAL_SELECTORS: Record<PortalName, PortalSelectors> = {
       'textarea[aria-label*="cover" i]',
     ],
   },
+  comeet: {
+    applyButton: ['button[type="submit"]', 'a.apply-button'],
+    nextButton: ['button[type="submit"]'],
+    submitButton: ['button[type="submit"]'],
+    formContainer: ['form', '[class*="application"]'],
+    jobTitle: ['h1', '[class*="job-title"]'],
+    companyName: ['[class*="company"]'],
+    location: ['[class*="location"]'],
+    easyApplyButton: [],
+    coverLetterField: [
+      'textarea[name*="cover" i]',
+      'textarea[aria-label*="cover" i]',
+    ],
+  },
   generic: { ...EMPTY_SELECTORS },
 };
 

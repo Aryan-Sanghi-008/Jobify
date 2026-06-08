@@ -19,6 +19,7 @@ const PORTAL_NAMES: PortalName[] = [
   'greenhouse',
   'lever',
   'workday',
+  'comeet',
   'generic',
 ];
 

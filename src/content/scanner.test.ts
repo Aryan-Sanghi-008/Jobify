@@ -94,6 +94,38 @@ describe('scanPageFieldsWithMeta', () => {
     expect(result.fields[0]?.sectionIndex).toBe(0);
   });
 
+  it('counts off-viewport fields when they are rendered', () => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 100,
+      height: 24,
+      top: 2000,
+      left: 0,
+      bottom: 2024,
+      right: 100,
+      x: 0,
+      y: 2000,
+      toJSON: () => ({}),
+    } as DOMRect);
+
+    document.body.innerHTML =
+      '<input type="text" aria-label="First name" value="" />';
+
+    const result = scanPageFieldsWithMeta();
+
+    expect(result.fields).toHaveLength(1);
+  });
+
+  it('discovers inputs inside open shadow roots', () => {
+    const host = document.createElement('div');
+    const shadow = host.attachShadow({ mode: 'open' });
+    shadow.innerHTML = '<input type="text" aria-label="Email" />';
+    document.body.appendChild(host);
+
+    const result = scanPageFieldsWithMeta();
+
+    expect(result.fields.some((field) => field.label === 'Email')).toBe(true);
+  });
+
   it('scopes queries to an explicit container root', () => {
     const form = document.createElement('form');
     const outside = document.createElement('div');

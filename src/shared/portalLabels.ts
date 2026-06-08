@@ -8,5 +8,6 @@ export const PORTAL_LABELS: Record<PortalName, string> = {
   greenhouse: 'Greenhouse',
   lever: 'Lever',
   workday: 'Workday',
+  comeet: 'Comeet',
   generic: 'Other',
 };

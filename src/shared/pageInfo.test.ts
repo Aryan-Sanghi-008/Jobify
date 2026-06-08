@@ -68,6 +68,22 @@ describe('buildPageInfoFromTabUrl', () => {
       portal: 'workday',
       hasApplicationForm: true,
       formFieldCount: 0,
+      formFrameId: 0,
+    });
+  });
+
+  it('returns metadata for AlgoSec position URLs', () => {
+    const info = buildPageInfoFromTabUrl(
+      'https://www.algosec.com/position/software-developer%2C-india/0b-64e',
+    );
+
+    expect(info).toEqual({
+      company: '',
+      jobTitle: '',
+      portal: 'generic',
+      hasApplicationForm: true,
+      formFieldCount: 0,
+      formFrameId: 0,
     });
   });
 
