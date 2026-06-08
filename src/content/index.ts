@@ -55,7 +55,7 @@ const EXCESSIVE_FIELDS_WARNING =
   'This page has an unusual number of fields — autofill may be slow.';
 
 const triggerAutofillLimiter = createRateLimiter({
-  maxRequests: 3,
+  maxRequests: 10,
   windowMs: 30_000,
 });
 
